@@ -1,0 +1,42 @@
+[
+  {
+    "name": "부정적 감정은 공격이 아님",
+    "input": {"speaker": "A", "text": "나 진짜 너무 속상해."},
+    "checks": {"hostility": {"max": 1}, "blame": {"max": 1}}
+  },
+  {
+    "name": "지각 뒤 비꼼",
+    "input": {"recent_messages": [{"speaker": "A", "text": "미안, 오늘 또 늦을 것 같아."}], "speaker": "B", "text": "역시 대단하시네요^^"},
+    "checks": {"sarcasm": {"min": 3}}
+  },
+  {
+    "name": "축하 맥락의 칭찬",
+    "input": {"recent_messages": [{"speaker": "A", "text": "시험 1등했어!"}], "speaker": "B", "text": "와 진짜 대단하다ㅋㅋ"},
+    "checks": {"sarcasm": {"max": 1}, "hostility": {"max": 1}}
+  },
+  {
+    "name": "식사 제안을 거절하는 됐어",
+    "input": {"recent_messages": [{"speaker": "A", "text": "저녁 먹을까?"}], "speaker": "B", "text": "난 됐어."},
+    "checks": {"hostility": {"max": 1}, "escalation_delta": {"max": 0}}
+  },
+  {
+    "name": "다툼 중 대화 차단",
+    "input": {"recent_messages": [{"speaker": "A", "text": "내가 설명할게."}], "speaker": "B", "text": "됐어. 더 말하지 마."},
+    "checks": {"hostility": {"min": 1}, "escalation_delta": {"min": 1}}
+  },
+  {
+    "name": "친한 사이의 감탄",
+    "input": {"recent_messages": [{"speaker": "A", "text": "나 로또 1등 됨ㅋㅋ"}], "speaker": "B", "text": "미친놈아ㅋㅋ 대박"},
+    "checks": {"hostility": {"max": 1}}
+  },
+  {
+    "name": "사과에 대한 직접 공격",
+    "input": {"recent_messages": [{"speaker": "A", "text": "난 진짜 사과했잖아."}], "speaker": "B", "text": "미친놈아 그게 사과냐?"},
+    "checks": {"hostility": {"min": 3}, "escalation_delta": {"min": 1}}
+  },
+  {
+    "name": "갈등 회복",
+    "input": {"recent_messages": [{"speaker": "A", "text": "아까 내가 말 심하게 한 것 같아."}], "speaker": "B", "text": "나도 미안해. 다음엔 같이 얘기하자."},
+    "checks": {"repair": {"min": 3}, "escalation_delta": {"max": -1}}
+  }
+]
