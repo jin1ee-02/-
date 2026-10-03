@@ -41,6 +41,11 @@ class DraftInput(ConversationInput):
     suggest_rewrite: bool = True
 
 
+class ReceiptResult(StrictModel):
+    status: Literal["received"]
+    received: ConversationInput
+
+
 class ModelFeatures(StrictModel):
     """Simple schema sent to the LLM; score ranges are checked separately."""
 

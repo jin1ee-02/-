@@ -1,6 +1,12 @@
 .env
+.env.*
+!.env.example
 .venv/
 .uv-cache/
 __pycache__/
 .pytest_cache/
 *.pyc
+node_modules/
+.expo/
+dist/
+.DS_Store

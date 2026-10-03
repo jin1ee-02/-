@@ -3,6 +3,7 @@
 import json
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import HTTPException
@@ -11,7 +12,7 @@ from openai import OpenAI
 from app.prompts import ANALYZE_PROMPT, REWRITE_PROMPT
 from app.schemas import ConversationInput, FeatureScores, ModelFeatures, RewriteOutput
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 class ModelOutputError(Exception):

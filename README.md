@@ -1,119 +1,116 @@
-# 채팅 갈등 중재 모델 MVP
+# KU래쪄용 — 졸업 프로젝트
 
-참조 대화의 **감정 온도계 + 전송 전 언어 순화**를 독립적으로 시험하는 FastAPI 서비스입니다. 프론트엔드, 채팅 저장소, 다툼 판결(Multi-Agent)은 이번 범위에 포함하지 않았습니다.
+1:1 채팅에 언어 순화, 감정 온도계, 다툼판결을 연결하는 프로젝트입니다. 중간 발표용으로 세 기능의 프론트 UI와 예시 결과를 준비했습니다. 백엔드 입력 전달·기존 AI 분석 연결도 별도 모드로 유지합니다.
 
-## 참조 대화 요약
-
-- 전체 구상은 대화 문맥과 갈등 온도를 `Core State`로 공유하고, 실시간 경로(온도계·언어 순화)와 요청 시 실행하는 다툼 판결 경로를 나누는 것입니다.
-- 갈등 분석은 욕설이나 부정적 감정만 세지 않습니다. 비난, 문맥상 비꼼, 상대 인격에 대한 일반화, 대화 차단, 사과와 타협이 **상대의 방어·반격에 미칠 가능성**을 봅니다.
-- 첫 모델은 자체 학습 데이터 없이 **0~4점 rubric + 한국어 few-shot + 구조화 출력**으로 만듭니다. LLM은 발화별 신호를 판정하고, 온도 갱신과 개입 기준은 코드가 처리합니다.
-- 순화는 원래 불만이나 요청을 유지한 채 공격적인 표현을 낮추는 제안입니다. 향후 실제 사용자 평가 데이터로 채점 기준과 가중치를 조정할 수 있습니다.
-
-## 동작 방식
+## 폴더 구조
 
 ```text
-최근 최대 10개 메시지 + 현재 메시지
-    → OpenAI 구조화 출력: hostility / sarcasm / blame / repair (각 0~4),
-                         escalation_delta (-2~2), confidence (0~4)
-    → 코드에서 raw conflict (0~100) 계산
-    ├─ 전송된 메시지: EWMA로 온도 갱신
-    └─ 전송 전 초안: 현재 온도별 기준과 비교 → 필요할 때만 순화 문장 제안
+GraduateProject/
+├── backend/              # 기존 FastAPI·OpenAI 코드, Python 가상환경, 테스트
+│   ├── app/
+│   ├── tests/
+│   ├── scripts/
+│   ├── examples/
+│   ├── docs/             # 팀 전달 요약과 Jev 도입 검토
+│   ├── .env.example
+│   └── requirements*.txt
+├── frontend/             # React Native + TypeScript + Expo
+│   ├── src/app/          # Expo Router 경로
+│   ├── src/screens/      # 채팅 목록·채팅방·설정·다툼판결
+│   ├── src/components/   # 메시지·공통 UI
+│   ├── src/api/          # 서버 호출 (API 합의 후 변경할 위치)
+│   ├── src/state/        # 실행 중 유지되는 대화 상태
+│   ├── src/types/        # 현재 백엔드 요청·응답 타입
+│   └── src/mocks/        # 세 기능의 프론트 시연 데이터
+└── docs/
+    ├── frontend-handoff.md # 전달받은 핸드오프 원문 (미정 사항 포함)
+    ├── api-integration.md  # 현재 연결 방식과 후속 합의 항목
+    ├── frontend-features-api.md # 세 기능 화면 흐름·API 제안·연결 작업
+    ├── backend-implementation-handoff.md # 백엔드 팀원용 구현·협의·사용 가이드
+    ├── backend-agent-prompt.md # Codex/Claude Code에 복사할 구현 요청문
+    └── examples/          # 기능별 API 호출용 JSON 5개
 ```
 
-`frustration`과 `disagreement`는 강한 감정이나 이견 자체를 공격으로 오판할 수 있어 첫 버전의 위험도 공식에서 제외했습니다. LLM은 **현재 메시지의 신호만** 평가하고, 이전 온도는 모델에 보내지 않습니다. 이전 온도와 최근 메시지는 API 호출자가 보관하고 다음 요청에 넘깁니다. 초안 분석은 온도를 갱신하지 않으며, 순화 문장은 자동 전송하지 않습니다.
+백엔드 팀원은 [전달 메시지와 현재 상태 요약](backend/docs/team-handoff.md), [구현 인계와 협의 가이드](docs/backend-implementation-handoff.md)를 먼저 읽고, 모델 후보는 [Jev 도입 검토](backend/docs/jev-integration-proposal.md)를 참고하세요. Jev는 아직 적용되지 않았습니다. 코딩 에이전트에는 [복사용 구현 요청문](docs/backend-agent-prompt.md)을 전달하세요. 현재 구현과 미구현 API, 협의할 정책, 단계별 작업, 설치·시연·검증 방법이 정리되어 있습니다.
 
-## 설치와 실행 (PowerShell)
+## 실행 (macOS / Linux)
 
-Python 3.11 이상과 `uv`가 필요합니다. 이 작업 폴더에는 테스트용 `.venv`가 이미 만들어져 있습니다. 다른 컴퓨터에서는 다음 순서로 설치하세요.
+서로 다른 터미널에서 각각 실행합니다. Python 3.11 이상과 Expo SDK 57이 지원하는 Node.js 22.13 이상이 필요합니다.
 
-```powershell
-uv venv --python 3.12
-uv pip install --python .venv\Scripts\python.exe -r requirements.txt
-Copy-Item .env.example .env
+### 터미널 1 — 백엔드
+
+```bash
+cd ~/GraduateProject/backend
 ```
 
-`.env`의 `OPENAI_API_KEY`를 실제 키로 바꾸세요. `OPENAI_MODEL` 기본값은 `gpt-4o-mini`이며 필요하면 바꿀 수 있습니다. 다음 명령으로 실행합니다.
+새로 클론한 환경에서는 먼저 설치합니다. 현재 작업 환경에는 `backend/.venv`가 준비되어 있습니다.
 
-```powershell
-.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+[ -f .env ] || cp .env.example .env
 ```
 
-문서는 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), 상태 확인은 `/health`입니다. 키가 없는 경우 상태 확인은 되지만 분석 요청은 503을 반환합니다.
+서버 실행:
 
-## API 사용 예시
-
-전송된 메시지의 온도를 갱신합니다.
-
-```powershell
-$body = @{
-  relationship = '친구'
-  summary = '청소 약속을 두고 의견이 엇갈림'
-  recent_messages = @(
-    @{ speaker = 'A'; text = '오늘 청소하기로 했잖아.' },
-    @{ speaker = 'B'; text = '오늘 너무 바빴어. 내일 하면 안 될까?' }
-  )
-  speaker = 'A'
-  text = '지난번에도 그렇게 말했잖아.'
-  previous_temperature = 35
-} | ConvertTo-Json -Depth 5
-
-$result = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/v1/messages/analyze' `
-  -ContentType 'application/json; charset=utf-8' -Body $body
-$result | ConvertTo-Json -Depth 5
+```bash
+.venv/bin/python -m uvicorn app.main:app --reload --port 8000
 ```
 
-응답 예시의 `temperature`를 다음 전송 메시지의 `previous_temperature`로 넘기세요. 각 요청의 `recent_messages`에는 **이번에 분석할 메시지를 제외한** 직전 최대 10개 메시지를 넣습니다.
+API 문서: <http://127.0.0.1:8000/docs>
 
-전송 전 초안의 위험도를 검사합니다.
+### 터미널 2 — 프론트엔드
 
-```powershell
-$draft = @{
-  recent_messages = @(
-    @{ speaker = 'A'; text = '오늘 청소하기로 했잖아.' },
-    @{ speaker = 'B'; text = '오늘 너무 바빴어. 내일 하면 안 될까?' }
-  )
-  speaker = 'A'
-  text = '그래 너는 맨날 그딴 식이지ㅋㅋ'
-  previous_temperature = 55
-  suggest_rewrite = $true
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8000/v1/drafts/analyze' `
-  -ContentType 'application/json; charset=utf-8' -Body $draft | ConvertTo-Json -Depth 5
+```bash
+cd ~/GraduateProject/frontend
+npm ci
+[ -f .env ] || cp .env.example .env
+npm run web
 ```
 
-`decision`은 `rewrite_suggested`, `below_threshold`, `low_confidence` 중 하나입니다. `suggest_rewrite=false`로 호출하면 필요 여부만 판단하고 추가 LLM 호출은 하지 않습니다. 사용자가 제안을 선택해 실제로 전송했을 때만 `/v1/messages/analyze`를 호출하세요.
+브라우저: <http://localhost:8081>
 
-## 점수 계산 기준
+`npm start`로 Expo 개발 서버를 시작한 뒤 모바일 기기에서도 확인할 수 있습니다. 실제 휴대폰에서는 `127.0.0.1`이 휴대폰 자신을 가리킵니다. 같은 네트워크의 Mac 주소를 `frontend/.env`에 `EXPO_PUBLIC_API_URL=http://<Mac의 LAN IP>:8000`으로 지정하고, 백엔드는 `--host 0.0.0.0`을 붙여 실행하세요. Android 에뮬레이터에서는 호스트 연결 주소로 `http://10.0.2.2:8000`을 사용합니다.
 
-모든 0~4 점수는 4로 나누어 정규화합니다. `up=max(escalation_delta,0)/2`, `down=max(-escalation_delta,0)/2`입니다.
+## 중간 발표용 모드
 
-```text
-raw conflict = clamp(100 × (
-    0.35 hostility + 0.25 sarcasm + 0.25 blame
-  + 0.15 up - 0.25 repair - 0.10 down
-), 0, 100)
+기본값은 `frontend/.env`의 `EXPO_PUBLIC_API_MODE=local`, `EXPO_PUBLIC_FEATURE_MODE=mock`입니다. 백엔드 없이 프론트만 실행해도 채팅과 세 기능을 체험할 수 있습니다. 모든 기능 결과에 **시연용 예시 · AI 분석 없음**을 표시합니다.
 
-new temperature = 0.7 × previous temperature + 0.3 × raw conflict
-```
+웹의 휴대폰 프레임 바깥 **관리자 · 시연 컨트롤**에서 **예시 대화로 바꾸기**를 누르면 청소 갈등 대화와 순화 대상 초안이 준비됩니다. 보내기 → 대안/원문 선택, 감정 온도계 → 쿨다운, 판결 → 결과/토론 로그/반론 순서로 확인하세요. 예시 불러오기는 현재 대화를 교체합니다. A/B 입력 화자와 서버 연결 확인도 바깥 패널에서 조작합니다.
 
-초안 위험도는 같은 `raw conflict` 공식을 씁니다. 순화 기준은 현재 온도 `0~39: 70`, `40~59: 60`, `60~79: 45`, `80~100: 30`입니다. `confidence <= 1`이면 순화 제안을 보류합니다. 이 가중치와 기준은 **실험용 휴리스틱**이며 검증된 확률이나 심리 진단 수치가 아닙니다.
+웹 미리보기는 iPhone 18 Pro Max용 440×956 레이아웃을 창 크기에 맞춰 축소합니다. 관리자 패널의 **100%**로 원래 크기를 볼 수 있고, 좁은 창에서는 패널이 프레임 아래에 표시됩니다. 실제 모바일 앱에는 웹 프레임·관리자 패널이 없습니다.
+
+백엔드 입력 전달 시연은 `EXPO_PUBLIC_API_MODE=receipt`로 바꿉니다.
+
+- 실제 FastAPI `/v1/demo/messages`에 메시지, 화자, 최근 최대 10개 대화, 관계를 전달합니다.
+- 백엔드는 입력을 검증하고 수신한 내용을 반환합니다. OpenAI 호출·DB 저장은 하지 않습니다.
+- 응답을 받은 메시지만 화면에 추가합니다. 실패하면 입력을 유지하고 오류를 표시합니다.
+- 사용자 A/B 전환은 같은 앱 안의 시뮬레이션입니다. 다른 기기와 실시간 채팅하는 기능은 아직 없습니다.
+
+실제 AI 분석을 연결하려면 `backend/.env`의 `OPENAI_API_KEY`를 설정하고, `frontend/.env`에서 `EXPO_PUBLIC_API_MODE=ai`로 바꾼 뒤 앱을 완전히 새로고침하세요. 이 모드는 기존 `/v1/messages/analyze`를 호출하며 API 비용이 발생합니다. 키는 백엔드에만 둡니다.
+
+## 현재 구현 범위와 API 합의
+
+핸드오프 문서의 `/analyze`, `/verdict`, `emotion`, `toxic`, `alternatives` 형식은 제안이며 현재 백엔드와 다릅니다. 이번 골격은 실제 백엔드 형식을 별도 API 레이어에 격리했습니다. 현재의 0~100 갈등 온도를 화자별 감정 1~5로 임의 변환하지 않습니다.
+
+프론트엔드에는 순화 ON/OFF·대안 선택, 나(A)의 5단계 온도계 ON/OFF·쿨다운, 별도 판결 화면·항목별 점수·공개 토론 로그·반론 UI가 있습니다. 실제 나의 감정 분석 및 다툼판결/반론 API, 인증, DB, 실시간 메시징은 아직 없습니다. 관계별 실제 민감도 계산과 WWE/UFC 정책도 합의가 필요합니다. 기본 시연 결과는 고정 예시/간단한 표현 감지이며 AI 추론이 아닙니다.
+
+개발 중 웹/Expo 개발 서버와 Python API 서버는 각각 실행합니다. 프론트 앱이 API 서버로 HTTP/JSON 요청을 보냅니다. 모바일 앱 배포 후에는 앱이 서버에 직접 요청하며, Expo 개발 서버는 실행할 필요가 없습니다. 웹 배포는 정적 파일 호스팅이나 API 서버와 같은 도메인 구성도 가능합니다.
 
 ## 검증
 
-API와 계산 테스트는 키 없이 실행됩니다.
-
-```powershell
-uv pip install --python .venv\Scripts\python.exe -r requirements-dev.txt
-.venv\Scripts\python.exe -m unittest discover -s tests -v
+```bash
+cd backend
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-키를 설정한 뒤 [평가 사례](examples/eval_cases.json)를 실제 모델에 적용할 수 있습니다. 반복 호출로 점수 흔들림(`spread`)도 확인합니다. 호출마다 API 비용이 발생합니다.
-
-```powershell
-.venv\Scripts\python.exe -m scripts.evaluate --repeats 3
+```bash
+cd frontend
+npm run typecheck
+npm run lint
+npm run build:web
 ```
 
-사례에는 비꼼과 진짜 칭찬, 갈등 중 대화 차단, 친한 사이의 감탄, 사과 등을 넣었습니다. 기준 점수는 초기 앵커이며 실제 사용자 평가 데이터로 조정해야 합니다. 대화 내용은 모델 API로 전송됩니다. 이 서비스는 로컬 대화를 저장하지 않고 OpenAI 요청에는 `store=False`를 지정합니다.
+자세한 연결 명세는 [API 연결 문서](docs/api-integration.md)와 [세 기능 API 문서](docs/frontend-features-api.md), 기존 점수·순화 구현 설명은 [백엔드 문서](backend/README.md), 프론트 작업 안내는 [프론트엔드 문서](frontend/README.md)에 있습니다.
 
-구조화 출력 구현은 [OpenAI 공식 문서](https://developers.openai.com/api/docs/guides/structured-outputs)의 Python `responses.parse(..., text_format=...)` 사용법을 따릅니다.
+공식 참고: [Expo 환경변수](https://docs.expo.dev/guides/environment-variables/), [Expo 웹 개발](https://docs.expo.dev/workflow/web/), [FastAPI CORS](https://fastapi.tiangolo.com/tutorial/cors/).

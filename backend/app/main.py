@@ -1,22 +1,42 @@
 """Stateless FastAPI surface for sent-message and draft analysis."""
 
 from typing import Annotated
+import os
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAIError
 from pydantic import ValidationError
 
 from app.provider import ModelOutputError, OpenAIProvider, get_provider
-from app.schemas import ConversationInput, DraftInput, DraftResult, MessageResult
+from app.schemas import ConversationInput, DraftInput, DraftResult, MessageResult, ReceiptResult
 from app.scoring import conflict_score, draft_decision, rewrite_threshold, update_temperature
 
 app = FastAPI(title="채팅 갈등 중재 모델 MVP", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS", "http://localhost:8081,http://127.0.0.1:8081"
+        ).split(",")
+        if origin.strip()
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 Provider = Annotated[OpenAIProvider, Depends(get_provider)]
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/v1/demo/messages", response_model=ReceiptResult)
+def receive_demo_message(request: ConversationInput) -> ReceiptResult:
+    """Echo validated input for the presentation; no AI call or persistence."""
+    return ReceiptResult(status="received", received=request)
 
 
 def _provider_failure(error: Exception) -> HTTPException:
