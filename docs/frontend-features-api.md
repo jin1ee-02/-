@@ -4,6 +4,8 @@
 
 팀원에게 전달할 구현 순서·협의 표·사용 방법은 [백엔드 구현 인계 가이드](backend-implementation-handoff.md), Codex/Claude Code에 붙여넣을 요청문은 [구현 요청문](backend-agent-prompt.md)에 있습니다.
 
+추가 후보인 [Jev 상대 반응 미리보기](../backend/docs/jev-recipient-preview-proposal.md)는 미전송 초안을 받은 상대의 예상 감정·강도를 표시하는 별도 기능입니다. 아래의 나(A) 온도계 계약을 변경하지 않으며, 새 API·타입·UI와 기능별 모드 설계는 아직 구현되지 않았습니다.
+
 ## 실행 모드
 
 `frontend/.env`:

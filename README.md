@@ -33,6 +33,8 @@ GraduateProject/
 
 백엔드 팀원은 [전달 메시지와 현재 상태 요약](backend/docs/team-handoff.md), [구현 인계와 협의 가이드](docs/backend-implementation-handoff.md)를 먼저 읽고, 모델 후보는 [Jev 도입 검토](backend/docs/jev-integration-proposal.md)를 참고하세요. Jev는 아직 적용되지 않았습니다. 코딩 에이전트에는 [복사용 구현 요청문](docs/backend-agent-prompt.md)을 전달하세요. 현재 구현과 미구현 API, 협의할 정책, 단계별 작업, 설치·시연·검증 방법이 정리되어 있습니다.
 
+2026년 10월 5일 추가한 [Jev 상대 반응 미리보기 설계](backend/docs/jev-recipient-preview-proposal.md)는 입력 중인 초안으로 수신자의 예상 감정 8종과 강도를 표시하고, 순화 대안 비교에 연결하는 제안입니다. 기존 나의 감정 온도계와 별도 기능이며 아직 API·UI·3D 표정은 구현되지 않았습니다.
+
 ## 실행 (macOS / Linux)
 
 서로 다른 터미널에서 각각 실행합니다. Python 3.11 이상과 Expo SDK 57이 지원하는 Node.js 22.13 이상이 필요합니다.
