@@ -3,19 +3,22 @@ import { router } from 'expo-router';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FEATURE_SOURCE } from '../api/features';
+import { newRequestId } from '../api/client';
 import { MessageBubble } from '../components/MessageBubble';
 import { CooldownSheet } from '../components/features/CooldownSheet';
 import { EmotionCard } from '../components/features/EmotionCard';
 import { FeatureToggle } from '../components/features/FeatureToggle';
 import { PurificationSheet } from '../components/features/PurificationSheet';
 import { SourceBadge } from '../components/features/SourceBadge';
+import { ReactionCard } from '../components/features/ReactionCard';
 import { ActionButton, colors, ui } from '../components/ui';
 import { useDraftReview } from '../hooks/useDraftReview';
+import { useReactionPreview } from '../hooks/useReactionPreview';
 import { useChat } from '../state/ChatContext';
-import type { DraftPreviewRequest } from '../types/features';
+import type { DraftPreviewRequest, ReactionRequest } from '../types/features';
 
 export default function ChatScreen() {
-  const { messages, relationship, temperature, sending, sendMessage, settings, updateSettings, emotion, refreshEmotion, cooldownUntil, setCooldownUntil, speaker, setSpeaker, draft, setDraft, beginInteraction, interactionBusy } = useChat();
+  const { messages, relationship, temperature, sending, sendMessage, settings, updateSettings, emotion, refreshEmotion, cooldownUntil, setCooldownUntil, speaker, draft, setDraft, beginInteraction, interactionBusy, session, syncError, participantCount } = useChat();
   const insets = useSafeAreaInsets();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [error, setError] = useState('');
@@ -27,13 +30,25 @@ export default function ChatScreen() {
   const submitLock = useRef(false);
   const scroll = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+  const lastCooldownLevel = useRef(0);
   const busy = interactionBusy || submitting;
   const remaining = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil - now) / 1000)) : 0;
-  const draftInput = useMemo<DraftPreviewRequest | null>(() => settings.purifyEnabled && speaker === 'A' && draft.trim() ? {
+  const draftInput = useMemo<DraftPreviewRequest | null>(() => settings.purifyEnabled && draft.trim() ? {
     speaker, text: draft.trim(), relationship, previous_temperature: temperature, sensitivity: settings.sensitivity,
     recent_messages: messages.slice(-10).map(({ speaker, text }) => ({ speaker, text })),
   } : null, [settings.purifyEnabled, settings.sensitivity, speaker, draft, relationship, temperature, messages]);
   const { state: review, check } = useDraftReview(draftInput);
+  const reactionInput = useMemo<ReactionRequest | null>(() => settings.reactionEnabled && draft.trim() ? {
+    speaker, recipient: speaker === 'A' ? 'B' : 'A', text: draft.trim(), relationship, previous_temperature: temperature,
+    recent_messages: messages.slice(-10).map(({ speaker, text }) => ({ speaker, text })), draft_revision: newRequestId(),
+  } : null, [settings.reactionEnabled, draft, speaker, relationship, temperature, messages]);
+  const reaction = useReactionPreview(reactionInput);
+
+  useEffect(() => {
+    const level = emotion.data?.level ?? 0;
+    if (level >= 3 && lastCooldownLevel.current < 3 && !cooldownUntil) { Keyboard.dismiss(); setCooldownOpen(true); }
+    if (emotion.status === 'ready') lastCooldownLevel.current = level;
+  }, [emotion.data, emotion.status, cooldownUntil]);
 
   useEffect(() => {
     if (!cooldownUntil) return;
@@ -79,7 +94,7 @@ export default function ChatScreen() {
   }
   function showAlternatives() { Keyboard.dismiss(); setPurificationOpen(true); check().catch(() => {}); }
   function soften() {
-    setCooldownOpen(false); setCooldownUntil(null); setSpeaker('A');
+    setCooldownOpen(false); setCooldownUntil(null);
     updateSettings({ purifyEnabled: true }); setHint('원하는 점을 적어보세요. 순화가 필요하면 대안을 보여드려요.'); inputRef.current?.focus();
   }
 
@@ -89,37 +104,41 @@ export default function ChatScreen() {
         <View style={styles.header}>
           <View style={ui.row}>
             <View style={styles.avatar}><Text style={styles.avatarText}>KU</Text></View>
-            <View style={{ flex: 1 }}><Text style={styles.roomTitle}>발표용 대화방</Text><Text style={styles.status}>{relationship} · 나와 상대의 대화</Text></View>
+            <View style={{ flex: 1 }}><Text style={styles.roomTitle}>{session ? '우리의 대화' : '시연 대화방'}</Text><Text style={styles.status}>{relationship} · {session ? `${participantCount}/2명 참가 · 나(${session.speaker})` : '나와 상대의 대화'}</Text></View>
+            <ActionButton title="목록" secondary disabled={busy} onPress={() => router.push('/')} style={styles.smallButton} />
             <ActionButton title="설정" secondary disabled={busy} onPress={() => router.push('/settings')} style={styles.smallButton} />
           </View>
           {!keyboardOpen && <>
             <View style={styles.features}>
               <FeatureToggle title="언어 순화" enabled={settings.purifyEnabled} disabled={busy} onChange={(enabled) => updateSettings({ purifyEnabled: enabled })} />
               <FeatureToggle title="온도계" enabled={settings.thermometerEnabled} disabled={busy} onChange={(enabled) => updateSettings({ thermometerEnabled: enabled })} />
+              <FeatureToggle title="상대 반응" enabled={!!settings.reactionEnabled} disabled={busy} onChange={(enabled) => updateSettings({ reactionEnabled: enabled })} />
               <ActionButton title="⚖ 판결" accessibilityLabel="다툼판결 요청" onPress={() => { Keyboard.dismiss(); router.push('/verdict'); }} disabled={busy} style={styles.smallButton} />
             </View>
             <SourceBadge source={FEATURE_SOURCE} />
           </>}
         </View>
+        {syncError ? <Text style={[ui.error, { paddingHorizontal: 16 }]}>{syncError}</Text> : null}
         {settings.thermometerEnabled && !keyboardOpen && <EmotionCard state={emotion} onRetry={refreshEmotion} onCooldown={() => { Keyboard.dismiss(); setCooldownOpen(true); }} />}
         <ScrollView ref={scroll} style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}>
           {messages.length === 0 && <View style={styles.empty}><Text style={ui.label}>편하게 대화를 시작해보세요</Text><Text style={[ui.subtitle, { textAlign: 'center' }]}>전하고 싶은 말을 아래에 입력하세요.</Text></View>}
-          {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+          {messages.map((message) => <MessageBubble key={message.id} message={message} viewer={session?.speaker ?? 'A'} />)}
         </ScrollView>
         <View style={styles.composer}>
+          <ReactionCard state={reaction.state} onRetry={reaction.retry} />
           {remaining > 0 && <View style={styles.pause}><Text style={styles.status}>쉬는 시간 {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}</Text><Pressable accessibilityRole="button" onPress={() => setCooldownUntil(null)} hitSlop={8}><Text style={styles.link}>지금 답장하기</Text></Pressable></View>}
           <View style={[ui.row, { alignItems: 'flex-end' }]}>
             <TextInput ref={inputRef} accessibilityLabel="메시지 입력" style={styles.input} value={draft} onChangeText={(text) => { setDraft(text); setError(''); setHint(''); }} multiline maxLength={2000} editable={!busy} placeholder="전하고 싶은 말을 입력하세요" placeholderTextColor={colors.muted} />
             <ActionButton title={busy ? '…' : '↑'} accessibilityLabel="메시지 보내기" disabled={busy || remaining > 0 || !draft.trim()} onPress={send} style={styles.sendButton} />
           </View>
-          <View style={[ui.row, { justifyContent: 'space-between' }]}><Text style={styles.status}>{draftInput && review.status === 'loading' ? '표현을 확인하고 있어요…' : speaker === 'B' ? '상대의 메시지' : '나의 메시지'}</Text><Text style={styles.status}>{draft.length} / 2000</Text>{busy && <ActivityIndicator size="small" color={colors.primary} accessibilityLabel="응답 대기 중" />}</View>
+          <View style={[ui.row, { justifyContent: 'space-between' }]}><Text style={styles.status}>{draftInput && review.status === 'loading' ? '표현을 확인하고 있어요…' : `사용자 ${speaker}의 메시지`}</Text><Text style={styles.status}>{draft.length} / 2000</Text>{busy && <ActivityIndicator size="small" color={colors.primary} accessibilityLabel="응답 대기 중" />}</View>
           {hint ? <Text style={styles.status}>{hint}</Text> : null}
           {draftInput && review.status === 'ready' && review.data?.decision !== 'safe' && <Pressable accessibilityRole="button" disabled={busy || remaining > 0} onPress={showAlternatives} style={styles.suggestion}><Text style={styles.link}>더 부드러운 표현이 있어요 · 대안 보기 →</Text></Pressable>}
           {draftInput && review.status === 'error' && <Text style={ui.error}>순화를 확인하지 못했어요. 보내기에서 재시도하거나 원문을 선택할 수 있어요.</Text>}
           {error ? <Text accessibilityRole="alert" style={ui.error}>{error}</Text> : null}
         </View>
       </View>
-      <PurificationSheet visible={purificationOpen && settings.purifyEnabled} original={draft} state={review} busy={busy} onChoose={sendSelected} onOriginal={() => sendSelected(draft)} onClose={() => setPurificationOpen(false)} onRetry={() => { check(true).catch(() => {}); }} />
+      <PurificationSheet visible={purificationOpen && settings.purifyEnabled} original={draft} state={review} busy={busy} input={settings.reactionEnabled ? draftInput : null} originalReaction={settings.reactionEnabled ? reaction.state : undefined} onChoose={sendSelected} onOriginal={() => sendSelected(draft)} onClose={() => setPurificationOpen(false)} onRetry={() => { check(true).catch(() => {}); }} />
       <CooldownSheet visible={cooldownOpen && settings.thermometerEnabled} emotion={emotion.data} hasDraft={!!draft.trim() && !busy} onPause={() => { setNow(Date.now()); setCooldownUntil(Date.now() + 180_000); setCooldownOpen(false); }} onRewrite={soften} onOriginal={() => { setCooldownUntil(null); sendSelected(draft); }} onClose={() => setCooldownOpen(false)} />
     </KeyboardAvoidingView>
   );

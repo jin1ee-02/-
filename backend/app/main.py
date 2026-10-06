@@ -1,18 +1,66 @@
-"""Stateless FastAPI surface for sent-message and draft analysis."""
+"""Analysis APIs and persistent two-participant rooms for the MVP."""
 
-from typing import Annotated
+from typing import Annotated, Callable
+import hashlib
+import json
 import os
+import time
+import threading
+from collections import OrderedDict
 
-from fastapi import Depends, FastAPI, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from openai import OpenAIError
 from pydantic import ValidationError
 
-from app.provider import ModelOutputError, OpenAIProvider, get_provider
-from app.schemas import ConversationInput, DraftInput, DraftResult, MessageResult, ReceiptResult
-from app.scoring import conflict_score, draft_decision, rewrite_threshold, update_temperature
+from app.provider import ModelOutputError, OpenAIProvider, get_provider, get_generation_factory
+from app.schemas import AppealInput, ConversationInput, DraftInput, DraftResult, EmotionInput, EmotionResult, MessageResult, ReactionInput, ReactionResult, ReceiptResult, RoomCreate, RoomJoin, RoomUpdate, SendInput, VerdictInput, VerdictResult
+from app.scoring import conflict_score, rewrite_threshold, update_temperature
+from app.analysis import analyzer_name, emotion_result, get_analyzer, reaction_result
+from app.store import get_store, room_lock
+from app.verdict import create_verdict, appeal_verdict as execute_appeal
 
-app = FastAPI(title="채팅 갈등 중재 모델 MVP", version="0.1.0")
+app = FastAPI(title="KU래쪄용 갈등 중재 MVP", version="1.0.0")
+Provider = Annotated[OpenAIProvider, Depends(get_provider)]
+Analyzer = Annotated[object, Depends(get_analyzer)]
+GenerationFactory = Annotated[Callable, Depends(get_generation_factory)]
+Authorization = Annotated[str | None, Header()]
+
+
+@app.exception_handler(OpenAIError)
+@app.exception_handler(ModelOutputError)
+@app.exception_handler(ValidationError)
+@app.exception_handler(httpx.HTTPError)
+@app.exception_handler(ValueError)
+def model_error_handler(request: Request, error: Exception):
+    return JSONResponse(status_code=502, content={"detail": "AI 요청 또는 응답 검증에 실패했습니다. 키와 모델 설정을 확인하고 다시 시도해주세요."})
+
+
+# Bounded per-client admission. Trust no forwarding headers in this local service.
+rate_lock = threading.Lock()
+rate_entries = OrderedDict()
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    if request.method == "POST":
+        identity = request.client.host if request.client else "local"
+        key = hashlib.sha256(identity.encode()).hexdigest()
+        now = time.monotonic()
+        with rate_lock:
+            bucket = [t for t in rate_entries.get(key, []) if t > now - 60]
+            if len(bucket) >= 60:
+                return JSONResponse(status_code=429, content={"detail": "요청이 너무 많아요. 잠시 후 다시 시도해주세요."}, headers={"Retry-After": "10"})
+            bucket.append(now)
+            rate_entries[key] = bucket
+            rate_entries.move_to_end(key)
+            while len(rate_entries) > 1024:
+                rate_entries.popitem(last=False)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -23,14 +71,20 @@ app.add_middleware(
         if origin.strip()
     ],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
-Provider = Annotated[OpenAIProvider, Depends(get_provider)]
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/v1/config")
+def config():
+    configured = lambda name: bool(os.getenv(name, "").strip()) and not os.getenv(name, "").startswith("your_")
+    analysis = os.getenv("ANALYSIS_PROVIDER", "openai")
+    return {"analysisProvider": analysis, "analysisConfigured": configured("TYPESAFE_API_KEY" if analysis == "jev" else "OPENAI_API_KEY"), "generationConfigured": configured("OPENAI_API_KEY"), "jevModel": os.getenv("JEV_MODEL", "jev-1.13.0"), "generationModel": os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "storage": "sqlite", "sync": "polling", "promptVersion": "ku-mvp-ko-v1"}
 
 
 @app.post("/v1/demo/messages", response_model=ReceiptResult)
@@ -44,7 +98,7 @@ def _provider_failure(error: Exception) -> HTTPException:
 
 
 @app.post("/v1/messages/analyze", response_model=MessageResult)
-def analyze_message(request: ConversationInput, provider: Provider) -> MessageResult:
+def analyze_message(request: ConversationInput, provider: Analyzer) -> MessageResult:
     """Analyze a sent message and return the updated temperature; caller persists it."""
     try:
         features = provider.analyze(request)
@@ -60,20 +114,110 @@ def analyze_message(request: ConversationInput, provider: Provider) -> MessageRe
 
 
 @app.post("/v1/drafts/analyze", response_model=DraftResult)
-def analyze_draft(request: DraftInput, provider: Provider) -> DraftResult:
+def analyze_draft(request: DraftInput, provider: Analyzer, generation: GenerationFactory) -> DraftResult:
     """Analyze an unsent draft without changing the conversation temperature."""
     try:
         features = provider.analyze(request)
         risk = conflict_score(features)
-        decision = draft_decision(features, risk, request.previous_temperature)
-        rewritten = provider.rewrite(request) if decision == "rewrite_suggested" and request.suggest_rewrite else None
+        threshold = max(15, min(90, round(rewrite_threshold(request.previous_temperature) + relationship_offset(request.relationship) - (request.sensitivity - 0.5) * 40)))
+        decision = "low_confidence" if features.confidence <= 1 else "rewrite_suggested" if risk >= threshold else "below_threshold"
+        alternatives = generation().alternatives(request) if decision == "rewrite_suggested" and request.suggest_rewrite else []
+        rewritten = alternatives[0] if alternatives else None
     except (OpenAIError, ModelOutputError, ValidationError) as error:
         raise _provider_failure(error) from error
     return DraftResult(
         features=features,
         draft_risk=risk,
         current_temperature=request.previous_temperature,
-        threshold=rewrite_threshold(request.previous_temperature),
+        threshold=threshold,
         decision=decision,
         rewritten_text=rewritten,
+        alternatives=alternatives,
+        provider=analyzer_name(provider),
     )
+
+
+def relationship_offset(relationship):
+    return {"직장 동료": -10, "연인": -5, "룸메이트": -5, "친구": 0}.get(relationship, 0)
+
+
+@app.post("/v1/emotions/analyze", response_model=EmotionResult)
+def analyze_emotion(request: EmotionInput, provider: Analyzer):
+    return emotion_result(request, provider)
+
+
+@app.post("/v1/reactions/preview", response_model=ReactionResult)
+def preview_reaction(request: ReactionInput, provider: Analyzer):
+    return reaction_result(request, provider)
+
+
+@app.post("/v1/rooms")
+def create_room(request: RoomCreate):
+    return get_store().create(request.relationship)
+
+
+@app.post("/v1/rooms/join")
+def join_room(request: RoomJoin):
+    return get_store().join(request.invite_code.strip())
+
+
+@app.get("/v1/rooms/{room_id}")
+def room_state(room_id: str, authorization: Authorization = None):
+    store = get_store()
+    return store.state(room_id, store.authorize(room_id, authorization))
+
+
+@app.post("/v1/rooms/{room_id}/settings")
+def room_settings(room_id: str, request: RoomUpdate, authorization: Authorization = None):
+    store = get_store()
+    subject = store.authorize(room_id, authorization)
+    with room_lock(room_id):
+        return store.update(room_id, subject, request)
+
+
+@app.post("/v1/rooms/{room_id}/messages")
+def send_message(room_id: str, request: SendInput, provider: Analyzer, authorization: Authorization = None):
+    store = get_store()
+    subject = store.authorize(room_id, authorization)
+    with room_lock(room_id):
+        existing = store.sent(room_id, request.request_id)
+        if existing:
+            if existing["speaker"] != subject or existing["text"] != request.text:
+                raise HTTPException(409, "같은 요청 ID를 다른 메시지에 사용할 수 없습니다.")
+            return store.state(room_id, subject)
+        state = store.state(room_id, subject)
+        input = ConversationInput(speaker=subject, text=request.text, relationship=state["relationship"], previous_temperature=state["temperature"], recent_messages=[{"speaker": m["speaker"], "text": m["text"]} for m in state["messages"][-10:]])
+        features = provider.analyze(input)
+        raw = conflict_score(features)
+        result = MessageResult(features=features, raw_conflict=raw, previous_temperature=state["temperature"], temperature=update_temperature(state["temperature"], raw))
+        return store.append(room_id, subject, request, result, state["version"])
+
+
+@app.post("/v1/verdicts", response_model=VerdictResult)
+def verdict(request: VerdictInput, provider: Provider, authorization: Authorization = None):
+    with room_lock(request.room_id):
+        return create_verdict(request, authorization, get_store(), provider)
+
+
+@app.post("/v1/verdicts/{verdict_id}/appeals", response_model=VerdictResult)
+def appeal(verdict_id: str, request: AppealInput, provider: Provider, authorization: Authorization = None):
+    store = get_store()
+    room_id = store.verdict(verdict_id)["room_id"]
+    with room_lock(room_id):
+        return execute_appeal(verdict_id, request, authorization, store, provider)
+
+
+@app.get("/v1/rooms/{room_id}/verdicts")
+def verdict_history(room_id: str, authorization: Authorization = None):
+    store = get_store()
+    store.authorize(room_id, authorization)
+    return store.history(room_id)
+
+
+@app.get("/v1/verdicts/{verdict_id}")
+def get_verdict(verdict_id: str, authorization: Authorization = None):
+    store = get_store()
+    record = store.verdict(verdict_id)
+    store.authorize(record["room_id"], authorization)
+    snapshot = json.loads(record["snapshot"])
+    return {"result": json.loads(record["result"]), "snapshot": snapshot["request"], "appeals": json.loads(record["appeals"])}

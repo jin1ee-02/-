@@ -9,7 +9,7 @@ import { ActionButton, colors, ui } from '../ui';
 import { PREVIEW_DEVICE } from './device';
 
 export function PreviewAdminPanel({ scale, fit, onFitChange }: { scale: number; fit: boolean; onFitChange: (value: boolean) => void }) {
-  const { messages, speaker, setSpeaker, setDraft, loadDemo, resetConversation, interactionBusy, temperature } = useChat();
+  const { messages, speaker, setSpeaker, setDraft, loadDemo, resetConversation, interactionBusy, temperature, session } = useChat();
   const [connection, setConnection] = useState('연결 확인 전');
   const [checking, setChecking] = useState(false);
   async function connect() {
@@ -30,14 +30,14 @@ export function PreviewAdminPanel({ scale, fit, onFitChange }: { scale: number; 
       </View>
       <View style={styles.section}>
         <Text style={ui.label}>시연 대화</Text>
-        <ActionButton title="예시 대화로 바꾸기" disabled={interactionBusy} onPress={() => { loadDemo(); router.replace('/chat'); }} />
+        <ActionButton title="예시 대화로 바꾸기" disabled={interactionBusy || API_MODE === 'ai'} onPress={() => { loadDemo(); router.replace('/chat'); }} />
         <ActionButton title="순화 대상 문장 넣기" secondary disabled={interactionBusy} onPress={() => { setSpeaker('A'); setDraft(DEMO_DRAFT); router.replace('/chat'); }} />
-        <ActionButton title="대화 초기화" secondary disabled={interactionBusy} onPress={() => { resetConversation(); router.replace('/chat'); }} />
+        <ActionButton title="대화 초기화" secondary disabled={interactionBusy || API_MODE === 'ai'} onPress={() => { resetConversation(); router.replace('/chat'); }} />
         <Text style={styles.caption}>예시 불러오기는 현재 대화를 교체합니다. 현재 {messages.length}개 메시지</Text>
       </View>
       <View style={styles.section}>
         <Text style={ui.label}>채팅 입력 화자</Text>
-        <View style={ui.row}>{(['A', 'B'] as const).map((value) => <ActionButton key={value} title={value === 'A' ? '나 (A)' : '상대 (B)'} secondary={speaker !== value} disabled={interactionBusy} onPress={() => setSpeaker(value)} style={{ flex: 1 }} />)}</View>
+        <View style={ui.row}>{(['A', 'B'] as const).map((value) => <ActionButton key={value} title={`사용자 ${value}`} secondary={speaker !== value} disabled={interactionBusy || !!session} onPress={() => setSpeaker(value)} style={{ flex: 1 }} />)}</View>
         <Text style={styles.caption}>나: 오른쪽 노란 말풍선 · 상대: 왼쪽 흰 말풍선</Text>
       </View>
       <View style={styles.section}>

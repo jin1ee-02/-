@@ -2,9 +2,9 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { Message } from '../types/api';
 import { colors } from './ui';
 
-export function MessageBubble({ message }: { message: Message }) {
+export function MessageBubble({ message, viewer = 'A' }: { message: Message; viewer?: 'A' | 'B' }) {
   // The presentation keeps user A as the viewer; B simulates the other person.
-  const isMine = message.speaker === 'A';
+  const isMine = message.speaker === viewer;
   return (
     <View style={[styles.wrap, { alignItems: isMine ? 'flex-end' : 'flex-start' }]}>
       <Text style={styles.sender}>{isMine ? '나' : '상대'} · 사용자 {message.speaker}</Text>

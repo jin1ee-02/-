@@ -24,6 +24,7 @@ export interface FeatureScores {
   escalation_delta: number;
   confidence: number;
   rationale: string;
+  model_version?: string | null;
 }
 
 export interface MessageResult {

@@ -1,11 +1,15 @@
 import type { ConversationInput, DeliveryResult, MessageResult, ReceiptResult } from '../types/api';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://127.0.0.1:8000').replace(/\/+$/, '');
-const configuredMode = process.env.EXPO_PUBLIC_API_MODE ?? 'local';
+const configuredMode = process.env.EXPO_PUBLIC_API_MODE ?? 'ai';
 if (configuredMode !== 'local' && configuredMode !== 'receipt' && configuredMode !== 'ai') {
   throw new Error('EXPO_PUBLIC_API_MODE는 local, receipt 또는 ai여야 합니다.');
 }
 export const API_MODE = configuredMode;
+
+let roomToken: string | null = null;
+export function setRoomToken(token: string | null) { roomToken = token; }
+export function newRequestId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`; }
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status?: number) {
@@ -23,7 +27,8 @@ export async function requestJson<T>(path: string, payload?: unknown, options: {
   try {
     const response = await fetch(`${API_URL}${path}`, {
       method: payload ? 'POST' : 'GET',
-      ...(payload ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) } : {}),
+      headers: { ...(payload ? { 'Content-Type': 'application/json' } : {}), ...(roomToken ? { Authorization: `Bearer ${roomToken}` } : {}) },
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
       signal: controller.signal,
     });
     if (!response.ok) {

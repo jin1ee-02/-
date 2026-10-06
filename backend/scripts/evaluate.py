@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app.provider import get_provider
+from app.analysis import get_analyzer
 from app.schemas import ConversationInput
 
 
@@ -19,7 +19,9 @@ def main() -> int:
 
     cases = json.loads((Path(__file__).resolve().parents[1] / "examples" / "eval_cases.json").read_text(encoding="utf-8"))
     try:
-        provider = get_provider()
+        provider = get_analyzer()
+        # Repeated measurements must invoke the model rather than replay the cache.
+        provider.cache_enabled = False
     except HTTPException as error:
         print(error.detail)
         return 2

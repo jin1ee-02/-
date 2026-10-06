@@ -1,5 +1,6 @@
 {
-  "room_id": "presentation-room",
+  "room_id": "replace-with-created-room-id",
+  "request_id": "example-verdict-001",
   "requester": "A",
   "mode": "WWE",
   "relationship": "룸메이트",

@@ -10,16 +10,16 @@ export function useDraftReview(input: DraftPreviewRequest | null) {
   const key = JSON.stringify(input);
   const state: AsyncState<DraftReview> = !input ? { status: 'idle', data: null, error: '' } : snapshot?.key === key ? snapshot.state : { status: 'loading', data: null, error: '' };
 
-  const check = useCallback(async (force = false) => {
+  const check = useCallback(async (force = false, generate = true) => {
     if (!input) return null;
-    if (cache.current?.key === key && !force) return cache.current.result;
+    if (cache.current?.key === key && !force && (!generate || cache.current.result.decision !== 'suggested' || cache.current.result.alternatives.length > 0)) return cache.current.result;
     if (timer.current) clearTimeout(timer.current);
     controller.current?.abort();
     const requestController = new AbortController();
     controller.current = requestController;
     setSnapshot({ key, state: { status: 'loading', data: null, error: '' } });
     try {
-      const result = await reviewDraft(input, requestController.signal);
+      const result = await reviewDraft(input, requestController.signal, generate);
       if (!requestController.signal.aborted) {
         cache.current = { key, result };
         setSnapshot({ key, state: { status: 'ready', data: result, error: '' } });
@@ -34,7 +34,7 @@ export function useDraftReview(input: DraftPreviewRequest | null) {
   }, [input, key]);
 
   useEffect(() => {
-    if (input) timer.current = setTimeout(() => { check().catch(() => {}); }, 600);
+    if (input) timer.current = setTimeout(() => { check(false, false).catch(() => {}); }, 600);
     return () => {
       if (timer.current) clearTimeout(timer.current);
       controller.current?.abort();

@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
-import { deliverMessage } from '../api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_MODE, deliverMessage, newRequestId, setRoomToken } from '../api/client';
 import { analyzeMyEmotion } from '../api/features';
+import { createRoom, getRoom, joinRoom, postMessage, saveSettings } from '../api/rooms';
 import { DEMO_CONVERSATION, DEMO_DRAFT } from '../mocks/features';
 import type { Message, Speaker } from '../types/api';
-import type { AsyncState, EmotionResult, RoomSettings, VerdictRequest, VerdictResult } from '../types/features';
+import type { AsyncState, EmotionResult, RoomSession, RoomSettings, RoomState, VerdictRequest, VerdictResult } from '../types/features';
 
 interface ChatState {
   messages: Message[];
@@ -29,6 +31,14 @@ interface ChatState {
   setCooldownUntil: (value: number | null) => void;
   lastVerdict: { result: VerdictResult; snapshot: VerdictRequest } | null;
   setLastVerdict: (value: { result: VerdictResult; snapshot: VerdictRequest } | null) => void;
+  session: RoomSession | null;
+  sessions: RoomSession[];
+  ready: boolean;
+  syncError: string;
+  participantCount: number;
+  openRoom: (session: RoomSession) => void;
+  newRoom: () => Promise<void>;
+  enterRoom: (invite: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatState | undefined>(undefined);
@@ -42,7 +52,20 @@ export function ChatProvider({ children }: PropsWithChildren) {
   const [draft, setDraft] = useState('');
   const [demoRevision, setDemoRevision] = useState(0);
   const [interactionCount, setInteractionCount] = useState(0);
-  const [settings, setSettings] = useState<RoomSettings>({ purifyEnabled: true, thermometerEnabled: true, sensitivity: 0.5 });
+  const [settings, setSettings] = useState<RoomSettings>({ purifyEnabled: true, thermometerEnabled: true, reactionEnabled: true, sensitivity: 0.5 });
+  const [session, setSession] = useState<RoomSession | null>(null);
+  const [sessions, setSessions] = useState<RoomSession[]>([]);
+  const [ready, setReady] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [participantCount, setParticipantCount] = useState(1);
+  const roomVersion = useRef(-1);
+  const activeRoom = useRef<string | null>(null);
+  const pendingSend = useRef<{ text: string; requestId: string } | null>(null);
+  const settingsRef = useRef(settings);
+  const relationshipRef = useRef(relationship);
+  const settingsQueue = useRef(Promise.resolve());
+  const settingsWrites = useRef(0);
+  const viewer = session?.speaker ?? 'A';
   const [emotionSnapshot, setEmotionSnapshot] = useState<{ key: string; state: AsyncState<EmotionResult> } | null>(null);
   const [emotionRevision, setEmotionRevision] = useState(0);
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
@@ -51,11 +74,97 @@ export function ChatProvider({ children }: PropsWithChildren) {
   const sequence = useRef(0);
   const interactionCountRef = useRef(0);
   const emotionInput = useMemo(() => settings.thermometerEnabled && messages.length > 0 ? {
-    speaker: 'A' as const, relationship,
+    speaker: viewer, relationship,
     recent_messages: messages.slice(-10).map(({ speaker, text }) => ({ speaker, text })),
-  } : null, [settings.thermometerEnabled, messages, relationship]);
+  } : null, [settings.thermometerEnabled, messages, relationship, viewer]);
   const emotionKey = JSON.stringify([emotionInput, emotionRevision]);
   const emotion: AsyncState<EmotionResult> = !emotionInput ? { status: 'idle', data: null, error: '' } : emotionSnapshot?.key === emotionKey ? emotionSnapshot.state : { status: 'loading', data: null, error: '' };
+
+  useEffect(() => {
+    AsyncStorage.getItem('ku-mvp-sessions-v1').then((raw) => {
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { sessions: RoomSession[]; activeId: string | null };
+      const valid = saved.sessions.filter((s) => typeof s.roomId === 'string' && typeof s.token === 'string' && ['A', 'B'].includes(s.speaker));
+      setSessions(valid);
+      if (API_MODE === 'ai') {
+        const active = valid.find((s) => s.roomId === saved.activeId);
+        if (active) { activeRoom.current = active.roomId; setRoomToken(active.token); setSession(active); setSpeaker(active.speaker); }
+      }
+    }).catch(() => setSyncError('저장된 대화방을 복원하지 못했어요.')).finally(() => setReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.setItem('ku-mvp-sessions-v1', JSON.stringify({ sessions, activeId: session?.roomId ?? null })).catch(() => setSyncError('기기 저장소에 대화방 정보를 저장하지 못했어요.'));
+  }, [sessions, session, ready]);
+
+  function applyRoom(state: RoomState) {
+    if (activeRoom.current !== state.roomId) return;
+    if (state.version < roomVersion.current) return;
+    if (state.version !== roomVersion.current) {
+      setMessages(state.messages); setTemperature(state.temperature); roomVersion.current = state.version;
+    }
+    setParticipantCount(state.participantCount);
+    if (!settingsWrites.current) {
+      setRelationship(state.relationship); relationshipRef.current = state.relationship;
+      setSettings((current) => JSON.stringify(current) === JSON.stringify(state.settings) ? current : state.settings);
+      settingsRef.current = state.settings;
+    }
+    setSyncError('');
+  }
+
+  useEffect(() => {
+    if (API_MODE !== 'ai' || !session) return;
+    const controller = new AbortController();
+    let running = false;
+    const sync = async () => {
+      if (running || inFlight.current || settingsWrites.current) return;
+      running = true;
+      try { const state = await getRoom(session.roomId, controller.signal); if (!controller.signal.aborted) applyRoom(state); }
+      catch (cause) { if (!controller.signal.aborted) setSyncError(cause instanceof Error ? cause.message : '대화 동기화 실패'); }
+      finally { running = false; }
+    };
+    sync();
+    const timer = setInterval(sync, 2000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [session]);
+
+  function openRoom(next: RoomSession) {
+    if (inFlight.current || interactionCountRef.current || settingsWrites.current) return;
+    activeRoom.current = next.roomId; roomVersion.current = -1; pendingSend.current = null;
+    setRoomToken(next.token); setSession(next); setSpeaker(next.speaker);
+    setMessages([]); setTemperature(0); setDraft(''); setLastVerdict(null); setCooldownUntil(null);
+    setDemoRevision((value) => value + 1);
+  }
+
+  async function newRoom() {
+    if (!ready || API_MODE !== 'ai') return;
+    const next = await createRoom(relationship);
+    setSessions((current) => [...current, next]); openRoom(next);
+  }
+
+  async function enterRoom(invite: string) {
+    if (!ready || API_MODE !== 'ai') return;
+    const next = await joinRoom(invite.trim());
+    setSessions((current) => [...current, next]); openRoom(next);
+  }
+
+  function persistSettings(nextRelationship: string, nextSettings: RoomSettings) {
+    if (!session || API_MODE !== 'ai') return;
+    settingsWrites.current += 1;
+    settingsQueue.current = settingsQueue.current.then(async () => {
+      try { await saveSettings(session.roomId, nextRelationship, nextSettings); }
+      catch (cause) { setSyncError(cause instanceof Error ? cause.message : '설정을 저장하지 못했어요.'); }
+      finally { settingsWrites.current -= 1; }
+    });
+  }
+
+  function changeRelationship(value: string) {
+    setRelationship(value); relationshipRef.current = value; persistSettings(value, settingsRef.current);
+  }
+  function updateSettings(patch: Partial<RoomSettings>) {
+    const next = { ...settingsRef.current, ...patch }; settingsRef.current = next; setSettings(next); persistSettings(relationshipRef.current, next);
+  }
 
   useEffect(() => {
     if (!emotionInput) return;
@@ -69,14 +178,17 @@ export function ChatProvider({ children }: PropsWithChildren) {
   }, [emotionInput, emotionKey]);
 
   function loadDemo() {
+    if (API_MODE === 'ai') return;
     if (inFlight.current || interactionCountRef.current) return;
     const timestamp = Date.now();
     setMessages(DEMO_CONVERSATION.map((turn, index) => ({
       ...turn, id: `demo-${timestamp}-${index}`, createdAt: new Date(timestamp - (DEMO_CONVERSATION.length - index) * 60_000).toISOString(), result: { mode: 'local' },
     })));
     setRelationship('룸메이트');
+    relationshipRef.current = '룸메이트';
     setTemperature(0);
     setSettings((current) => ({ ...current, purifyEnabled: true, thermometerEnabled: true }));
+    settingsRef.current = { ...settingsRef.current, purifyEnabled: true, thermometerEnabled: true };
     setCooldownUntil(null);
     setLastVerdict(null);
     setSpeaker('A');
@@ -85,6 +197,7 @@ export function ChatProvider({ children }: PropsWithChildren) {
   }
 
   function resetConversation() {
+    if (API_MODE === 'ai') return;
     if (inFlight.current || interactionCountRef.current) return;
     setMessages([]); setTemperature(0); setCooldownUntil(null); setLastVerdict(null);
     setDraft(''); setSpeaker('A'); setDemoRevision((value) => value + 1);
@@ -109,6 +222,14 @@ export function ChatProvider({ children }: PropsWithChildren) {
     inFlight.current = true;
     setSending(true);
     try {
+      if (API_MODE === 'ai') {
+        if (!session) throw new Error('대화방을 만들거나 초대 코드로 참가해주세요.');
+        if (speaker !== session.speaker) throw new Error('참가한 사용자로만 메시지를 보낼 수 있어요.');
+        if (!pendingSend.current || pendingSend.current.text !== value) pendingSend.current = { text: value, requestId: newRequestId() };
+        const state = await postMessage(session.roomId, value, pendingSend.current.requestId);
+        applyRoom(state); pendingSend.current = null;
+        return;
+      }
       const result = await deliverMessage({
         recent_messages: messages.slice(-10).map(({ speaker, text }) => ({ speaker, text })),
         speaker,
@@ -133,12 +254,13 @@ export function ChatProvider({ children }: PropsWithChildren) {
 
   return (
     <ChatContext.Provider value={{
-      messages, relationship, setRelationship, temperature, sending, sendMessage,
-      speaker, setSpeaker, draft, setDraft, demoRevision,
+      messages, relationship, setRelationship: changeRelationship, temperature, sending, sendMessage,
+      speaker, setSpeaker: (value) => { if (!session) setSpeaker(value); }, draft, setDraft, demoRevision,
       interactionBusy: sending || interactionCount > 0, beginInteraction,
-      settings, updateSettings: (patch) => setSettings((current) => ({ ...current, ...patch })),
+      settings, updateSettings,
       emotion, refreshEmotion: () => setEmotionRevision((value) => value + 1), loadDemo, resetConversation,
       cooldownUntil, setCooldownUntil, lastVerdict, setLastVerdict,
+      session, sessions, ready, syncError, participantCount, openRoom, newRoom, enterRoom,
     }}>
       {children}
     </ChatContext.Provider>

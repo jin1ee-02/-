@@ -8,6 +8,7 @@ export type VerdictMode = 'WWE' | 'UFC';
 export interface RoomSettings {
   purifyEnabled: boolean;
   thermometerEnabled: boolean;
+  reactionEnabled?: boolean;
   sensitivity: number; // Temporary UI value: 0.25 / 0.5 / 0.75, pending team agreement.
 }
 
@@ -31,8 +32,11 @@ export interface EmotionRequest {
 
 export interface EmotionResult {
   subject: Speaker;
-  level: EmotionLevel;
-  trend: EmotionTrend;
+  level: EmotionLevel | null;
+  trend: EmotionTrend | null;
+  status?: 'ok' | 'uncertain' | 'insufficient_context';
+  confidence?: number | null;
+  provider?: string;
   recommendation: string;
   contextCount: number;
   source: FeatureSource;
@@ -45,6 +49,7 @@ export interface VerdictRequest {
   relationship: string;
   recent_messages: ChatTurn[];
   context: string;
+  request_id?: string;
 }
 
 export interface SideScore {
@@ -71,6 +76,47 @@ export interface VerdictResult {
   humor: string;
   debateLog: DebateEntry[];
   source: FeatureSource;
+  rounds?: number;
+  stopReason?: 'stable' | 'max_rounds';
+  parentVerdictId?: string | null;
+  snapshotVersion?: number;
+}
+
+export type ReactionEmotion = 'neutral' | 'happy' | 'sad' | 'angry' | 'surprised' | 'fear' | 'disgust' | 'contempt';
+
+export interface ReactionRequest extends ConversationInput {
+  recipient: Speaker;
+  draft_revision: string;
+}
+
+export interface ReactionResult {
+  status: 'ok' | 'uncertain' | 'insufficient_context';
+  recipient: Speaker;
+  draft_revision: string;
+  emotion: ReactionEmotion | null;
+  probabilities: Record<ReactionEmotion, number> | Record<string, never>;
+  intensity: number | null;
+  confidence: number | null;
+  explanation: string;
+  provider: string;
+  source: FeatureSource;
+}
+
+export interface RoomSession {
+  roomId: string;
+  speaker: Speaker;
+  token: string;
+  inviteCode: string | null;
+}
+
+export interface RoomState {
+  roomId: string;
+  relationship: string;
+  version: number;
+  temperature: number;
+  participantCount: number;
+  messages: import('./api').Message[];
+  settings: RoomSettings;
 }
 
 export interface AsyncState<T> {

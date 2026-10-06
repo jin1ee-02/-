@@ -10,3 +10,6 @@ node_modules/
 .expo/
 dist/
 .DS_Store
+backend/data/
+frontend/.npm-cache/
+tmp/
