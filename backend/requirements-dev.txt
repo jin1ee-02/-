@@ -1,2 +1,4 @@
 -r requirements.txt
+# scripts/stability.py (Beta-Binomial mixture fit for the round-stability analysis)
+scipy>=1.11
 httpx>=0.27,<1

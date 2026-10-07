@@ -1,6 +1,6 @@
 # KU래쪄용 MVP 빠른 시작
 
-자세한 구현 설명과 프롬프트 원문은 [MVP 구현과 방법론](MVP-구현-방법론.md)을 읽으세요.
+AI 활용 방식은 [AI 활용 설명](AI-활용-설명.md), 저장·동기화·API 계약은 [MVP 구현과 방법론](MVP-구현-방법론.md)을 읽으세요.
 
 ## Windows 준비
 
@@ -17,12 +17,11 @@ Python 3.11 이상, Node.js 22.13 이상, npm이 필요합니다. 프로젝트 �
 ```text
 OPENAI_API_KEY=실제_OpenAI_키
 OPENAI_MODEL=gpt-4o-mini
-ANALYSIS_PROVIDER=jev
-TYPESAFE_API_KEY=실제_TypeSafe_키
-JEV_MODEL=jev-1.13.0
+LLM_PROVIDER=auto
+ANALYSIS_PROVIDER=auto
 ```
 
-JEV 분석에는 TypeSafe 키, 순화 대안과 판결에는 OpenAI 키가 필요합니다. `ANALYSIS_PROVIDER=openai`를 선택하면 OpenAI만으로 네 기능을 사용할 수 있지만 JEV는 실행되지 않습니다. 키는 백엔드에만 넣으세요.
+키를 넣지 않아도 실행됩니다. `auto`는 OpenAI 키가 있으면 실제 LLM, 없으면 오프라인 규칙을 고르고 화면에 출처를 표시합니다. 오프라인 규칙의 결과는 AI 판단이 아닙니다. TypeSafe JEV로 분석하려면 `ANALYSIS_PROVIDER=jev`와 `TYPESAFE_API_KEY`를 추가하세요. 키는 백엔드에만 넣으세요. 현재 선택된 provider는 `/v1/config`의 `llmProvider`, `offline`에서 확인합니다.
 
 `frontend/.env`:
 
@@ -89,4 +88,4 @@ npm run web
 - 401/403: 참가 토큰과 선택한 방 확인.
 - 연결 오류: 서버 실행, API_URL, LAN, CORS 확인.
 
-프론트 타입·린트 검사를 수행했습니다. 별도 테스트, 실제 모델 호출, 백엔드 실행, 실제 모바일·웹 빌드는 이번 작업에서 실행하지 않았습니다. 회귀 사례는 `backend/tests/test_mvp.py`에 준비되어 있습니다.
+백엔드 테스트 33개와 프론트 타입·린트·단위 테스트가 통과하고, 웹에서 두 참가자 흐름을 오프라인 규칙 모드로 구동해 확인했습니다. 실제 LLM 호출과 모바일 기기 실행은 아직 확인하지 않았습니다.

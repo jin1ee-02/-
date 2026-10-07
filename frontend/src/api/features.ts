@@ -25,20 +25,21 @@ function previewDelay(ms: number, signal?: AbortSignal) {
   });
 }
 
-export async function reviewDraft(input: DraftPreviewRequest, signal?: AbortSignal, generate = true): Promise<DraftReview> {
+export async function reviewDraft(input: DraftPreviewRequest, signal?: AbortSignal, generate = true, manual = false): Promise<DraftReview> {
   if (FEATURE_SOURCE === 'mock') {
     await previewDelay(220, signal);
     return mockDraftReview(input);
   }
   const result = await requestJson<{
     features: FeatureScores; decision: 'rewrite_suggested' | 'below_threshold' | 'low_confidence'; rewritten_text: string | null; alternatives: string[];
-  }>('/v1/drafts/analyze', { ...input, suggest_rewrite: generate }, { signal, timeoutMs: 150_000 });
+  }>('/v1/drafts/analyze', { ...input, suggest_rewrite: generate, force_rewrite: manual }, { signal, timeoutMs: 150_000 });
   if (!result.features || !['rewrite_suggested', 'below_threshold', 'low_confidence'].includes(result.decision)) throw new Error('순화 응답 형식을 확인해주세요.');
   return {
     draft: input.text,
     decision: result.decision === 'rewrite_suggested' ? 'suggested' : result.decision === 'low_confidence' ? 'uncertain' : 'safe',
     alternatives: Array.isArray(result.alternatives) ? result.alternatives : result.rewritten_text ? [result.rewritten_text] : [],
     explanation: result.features.rationale,
+    provider: result.features.model_version,
     source: 'api',
   };
 }

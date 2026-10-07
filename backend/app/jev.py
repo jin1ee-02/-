@@ -95,6 +95,7 @@ class JevProvider:
     def analyze(self, request: ConversationInput):
         state = {"relationship": request.relationship, "summary": request.summary, "recent_messages": [t.model_dump() for t in request.recent_messages], "target": {"speaker": request.speaker, "text": request.text}}
         questions = {key: score_question(f"최근 대화는 문맥으로만 참고하고 target 한 메시지의 {key}를 평가하세요.", rubric) for key, rubric in RUBRICS.items()}
+        questions["emotion"] = score_question("target 화자가 이 메시지에서 표현한 분노나 긴장 수준은? 실제 내면을 추측하지 마세요.", EMOTION_LEVELS)
         data = self.evaluate(state, questions)
         values = {key: score_answer(data["answers"][key]) for key in questions}
         scores = {key: min(4, int(value[0] + 0.5)) for key, value in values.items()}

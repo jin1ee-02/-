@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from app.schemas import RoomSettings
+from app.scoring import thermometer
 
 
 def now():
@@ -55,6 +56,8 @@ class Store:
                     request_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(room_id, request_id)
                 );
             """)
+            if "core_state" not in [row["name"] for row in db.execute("PRAGMA table_info(rooms)")]:
+                db.execute("ALTER TABLE rooms ADD COLUMN core_state TEXT")
 
     @contextmanager
     def connect(self):
@@ -106,7 +109,10 @@ class Store:
             rows = db.execute("SELECT * FROM messages WHERE room_id=? ORDER BY sequence DESC LIMIT 200", (room_id,)).fetchall()
             settings = db.execute("SELECT settings FROM participants WHERE room_id=? AND speaker=?", (room_id, speaker)).fetchone()
             count = db.execute("SELECT COUNT(*) FROM participants WHERE room_id=?", (room_id,)).fetchone()[0]
-        return {"roomId": room_id, "relationship": room["relationship"], "version": room["version"], "temperature": room["temperature"], "messages": [self.message(row) for row in reversed(rows)], "settings": json.loads(settings[0]), "participantCount": count}
+        messages, settings = [self.message(row) for row in reversed(rows)], json.loads(settings[0])
+        # Both thermometers come from the stored Light results, so reading the room costs no model call.
+        emotions = {who: thermometer(messages, who, room["relationship"], settings.get("sensitivity", 0.5)) for who in "AB"}
+        return {"roomId": room_id, "relationship": room["relationship"], "version": room["version"], "temperature": room["temperature"], "messages": messages, "settings": settings, "participantCount": count, "emotions": emotions}
 
     def update(self, room_id, speaker, request):
         with self.connect() as db:
@@ -142,8 +148,15 @@ class Store:
             raise HTTPException(404, "판결을 찾을 수 없습니다.")
         return dict(row)
 
-    def save_verdict(self, request, snapshot, result, appeals):
+    def core(self, room_id):
         with self.connect() as db:
+            row = db.execute("SELECT core_state FROM rooms WHERE id=?", (room_id,)).fetchone()
+        return json.loads(row[0]) if row and row[0] else None
+
+    def save_verdict(self, request, snapshot, result, appeals, core=None):
+        with self.connect() as db:
+            if core:
+                db.execute("UPDATE rooms SET core_state=? WHERE id=?", (core, request.room_id))
             db.execute("INSERT INTO verdicts VALUES(?,?,?,?,?,?,?,?)", (result.verdictId, request.room_id, json.dumps(snapshot, ensure_ascii=False), result.model_dump_json(), json.dumps(appeals, ensure_ascii=False), result.parentVerdictId, request.request_id, now()))
 
     def history(self, room_id):

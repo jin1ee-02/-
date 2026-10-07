@@ -1,0 +1,46 @@
+[
+  {
+    "name": "청소 약속을 미룬 룸메이트",
+    "label": "nah",
+    "relationship": "룸메이트",
+    "messages": [
+      {"speaker": "A", "text": "오늘 청소 같이 하기로 했잖아."},
+      {"speaker": "B", "text": "미안, 오늘 너무 바빠서 못 했어."},
+      {"speaker": "A", "text": "지난번에도 그래서 좀 답답해."},
+      {"speaker": "B", "text": "내일은 같이 할 수 있을 것 같아."}
+    ]
+  },
+  {
+    "name": "늦은 친구에게 비꼬기",
+    "label": "esh",
+    "relationship": "친구",
+    "messages": [
+      {"speaker": "A", "text": "약속 시간에 또 늦네?"},
+      {"speaker": "B", "text": "버스 타느라 그랬어. 그것도 이해 못 해줘?"},
+      {"speaker": "A", "text": "진짜 대단하시네 ㅋㅋ 맨날 그 모양이지"},
+      {"speaker": "B", "text": "됐어. 더 말하지 마."}
+    ]
+  },
+  {
+    "name": "사과했는데도 인신공격",
+    "label": "yta",
+    "relationship": "연인",
+    "messages": [
+      {"speaker": "B", "text": "연락 못 해서 미안해. 회의가 길어졌어."},
+      {"speaker": "A", "text": "넌 항상 그딴 식이야. 한심하다 진짜."},
+      {"speaker": "B", "text": "다음부터는 미리 말할게. 미안해."},
+      {"speaker": "A", "text": "됐어. 꺼져."}
+    ]
+  },
+  {
+    "name": "차분한 요청을 무시",
+    "label": "nta",
+    "relationship": "직장 동료",
+    "messages": [
+      {"speaker": "A", "text": "회의 자료를 내일 오전까지 받을 수 있을까요? 일정이 밀려서요."},
+      {"speaker": "B", "text": "어쩌라고요. 맨날 재촉만 하시네."},
+      {"speaker": "A", "text": "재촉하려던 건 아니에요. 가능한 시간을 알려주시면 맞출게요."},
+      {"speaker": "B", "text": "알아서 해요. 관심 없어요."}
+    ]
+  }
+]

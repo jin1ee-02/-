@@ -1,5 +1,6 @@
 """Bounded in-process caching and admission control; no chat text in logs."""
 
+import contextvars
 import hashlib
 import json
 import os
@@ -9,6 +10,16 @@ from collections import OrderedDict
 from contextlib import contextmanager
 
 from fastapi import HTTPException
+
+# Per-request collector for token/latency metadata; a list is installed by the code that wants the totals.
+usage_log: contextvars.ContextVar[list | None] = contextvars.ContextVar("usage_log", default=None)
+
+
+def usage_total(entries) -> dict | None:
+    if not entries:
+        return None
+    return {key: round(sum(entry[key] for entry in entries), 2) for key in ("inputTokens", "cachedTokens", "outputTokens", "seconds")}
+
 
 MODEL_SLOTS = threading.BoundedSemaphore(max(1, int(os.getenv("MODEL_CONCURRENCY", "4"))))
 

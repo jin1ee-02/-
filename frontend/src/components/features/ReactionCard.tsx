@@ -18,7 +18,7 @@ export function ReactionCard({ state, onRetry, compact = false }: { state: Async
         <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2 }}><View style={{ height: 4, width: `${Math.round(result.intensity * 100)}%`, backgroundColor: colors.primary, borderRadius: 2 }} /></View>
         {result.confidence !== null && <Text style={ui.subtitle}>모델 신뢰도 {Math.round(result.confidence * 100)}%</Text>}
       </> : null}
-      <Text style={ui.subtitle}>{result.explanation}</Text><SourceBadge source={result.source} />
+      <Text style={ui.subtitle}>{result.explanation}</Text><SourceBadge source={result.source} provider={result.provider} />
     </> : null}
   </View>;
 }

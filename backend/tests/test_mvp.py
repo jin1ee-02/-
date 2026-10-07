@@ -34,11 +34,11 @@ class FakeAnalyzer:
 class FakeDebate:
     model = "fake-generation"
 
-    def structured(self, prompt, payload, schema, tokens):
+    def structured(self, prompt, payload, schema, tokens, shared=None):
         if schema is DebateOutput:
-            return DebateOutput(text="대화에 나타난 근거를 함께 확인합니다.", evidence_indices=[0])
+            return DebateOutput(strategy="근거를 먼저 제시한다.", text="대화에 나타난 근거를 함께 확인합니다.", evidence_indices=[0])
         score = SideScore(logic=60, emotionControl=70, evidence=50, strength="요청을 제시했습니다.", improvement="가능한 시간을 구체적으로 정하세요.")
-        return JudgeOutput(plaintiff=score, defendant=score, summary="양쪽의 설명을 비교했습니다.", recommendation="다음 약속을 함께 정하세요.", humor="", unresolved=False)
+        return JudgeOutput(plaintiff=score, defendant=score, summary="양쪽의 설명을 비교했습니다.", recommendation="다음 약속을 함께 정하세요.", humor="", unresolved=False, belief=0.5)
 
 
 class MvpTests(unittest.TestCase):
@@ -115,7 +115,8 @@ class MvpTests(unittest.TestCase):
             result = run_debate(request, snapshot, FakeDebate())
         self.assertEqual(result.rounds, 2)
         self.assertEqual(result.stopReason, "stable")
-        self.assertEqual(len(result.debateLog), 8)
+        self.assertEqual(len(result.debateLog), 12)  # per round: 3 debaters + 3 panel judges
+        self.assertEqual(result.judges, 3)
         self.assertEqual(result.humor, "")
 
 

@@ -11,15 +11,15 @@ const stages = [
   { label: '폭발', color: '#C85050' },
 ];
 
-export function EmotionCard({ state, onRetry, onCooldown }: {
-  state: AsyncState<EmotionResult>; onRetry: () => void; onCooldown: () => void;
+export function EmotionCard({ state, partner, onRetry, onCooldown }: {
+  state: AsyncState<EmotionResult>; partner?: EmotionResult | null; onRetry: () => void; onCooldown: () => void;
 }) {
   const result = state.data;
   const level = result?.level ?? null;
   return (
     <View style={styles.card}>
       <View style={[ui.row, { justifyContent: 'space-between' }]}>
-        <Text style={ui.label}>나의 감정 온도계</Text>
+        <Text style={ui.label}>감정 온도계 · 나</Text>
         {state.status === 'loading' ? <ActivityIndicator color={colors.primary} /> : level ? (
           <Text style={[styles.level, { color: stages[level - 1].color }]}>{stages[level - 1].label} · {level}/5</Text>
         ) : null}
@@ -38,8 +38,9 @@ export function EmotionCard({ state, onRetry, onCooldown }: {
         <>
           <Text style={styles.caption}>최근 {result.contextCount}개 메시지 · 나({result.subject}) · {result.trend === 'up' ? '상승 중 ↑' : result.trend === 'down' ? '낮아지는 중 ↓' : result.trend === 'flat' ? '유지 중 →' : '추세 비교 문맥 부족'}</Text>
           <Text style={styles.caption}>{result.recommendation}</Text>
-          <SourceBadge source={result.source} />
-          {level !== null && level >= 3 && <Pressable accessibilityRole="button" onPress={onCooldown} style={styles.notice}><Text style={styles.noticeText}>잠깐 쉬어갈까요? · 쿨다운 →</Text></Pressable>}
+          {partner ? <Text style={styles.caption}>상대({partner.subject}) · {partner.level ? <Text style={{ fontWeight: '800', color: stages[partner.level - 1].color }}>{stages[partner.level - 1].label} {partner.level}/5</Text> : '판단 보류'}{partner.trend === 'up' ? ' · 상승 중 ↑' : partner.trend === 'down' ? ' · 낮아지는 중 ↓' : ''} · 메시지에 표현된 정도이며 실제 마음과 다를 수 있어요</Text> : null}
+          {result.status === 'insufficient_context' ? null : <SourceBadge source={result.source} provider={result.provider} />}
+          {level !== null && level >= (result.cooldownLevel ?? 3) && <Pressable accessibilityRole="button" onPress={onCooldown} style={styles.notice}><Text style={styles.noticeText}>잠깐 쉬어갈까요? · 쿨다운 →</Text></Pressable>}
         </>
       ) : <Text style={styles.caption}>대화가 시작되면 나의 표현된 감정 상태를 표시합니다.</Text>}
     </View>

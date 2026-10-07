@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from pydantic import ValidationError
 
 from app.provider import OpenAIProvider
-from app.schemas import ConversationInput, ModelFeatures
+from app.schemas import ConversationInput, LightOutput
 
 
 class FakeResponses:
@@ -20,8 +20,8 @@ class FakeResponses:
 
 class ProviderTests(unittest.TestCase):
     def test_temperature_is_not_sent_to_model(self):
-        fake = FakeResponses(ModelFeatures(hostility=0, sarcasm=0, blame=0, repair=0,
-                                           escalation_delta=0, confidence=3, rationale="중립"))
+        fake = FakeResponses(LightOutput(hostility=0, sarcasm=0, blame=0, repair=0, emotion=0, toxic=False, alternatives=[],
+                                         escalation_delta=0, confidence=3, rationale="중립"))
         provider = OpenAIProvider.__new__(OpenAIProvider)
         provider.client = SimpleNamespace(responses=fake)
         provider.model = "test-model"
@@ -32,9 +32,27 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(payload["target"], {"speaker": "A", "text": "안녕"})
         self.assertFalse(fake.kwargs["store"])
 
+    def test_token_usage_is_collected_for_the_request_that_asks_for_it(self):
+        from app.runtime import usage_log, usage_total
+        parsed = LightOutput(hostility=0, sarcasm=0, blame=0, repair=0, emotion=0, toxic=False, alternatives=[], escalation_delta=0, confidence=3, rationale="중립")
+        fake = FakeResponses(parsed)
+        fake.parse = lambda **kwargs: SimpleNamespace(output_parsed=parsed, usage=SimpleNamespace(input_tokens=1200, output_tokens=80, input_tokens_details=SimpleNamespace(cached_tokens=1024)))
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        provider.client = SimpleNamespace(responses=fake)
+        provider.model = "test-model"
+        entries = []
+        token = usage_log.set(entries)
+        try:
+            provider.structured("지시", {"turn": 1}, LightOutput, 100, shared={"case": {}})
+            provider.structured("지시", {"turn": 2}, LightOutput, 100, shared={"case": {}})
+        finally:
+            usage_log.reset(token)
+        total = usage_total(entries)
+        self.assertEqual((total["inputTokens"], total["cachedTokens"], total["outputTokens"]), (2400, 2048, 160))
+
     def test_out_of_range_model_output_is_rejected(self):
-        fake = FakeResponses(ModelFeatures(hostility=9, sarcasm=0, blame=0, repair=0,
-                                           escalation_delta=0, confidence=3, rationale="잘못된 점수"))
+        fake = FakeResponses(LightOutput(hostility=9, sarcasm=0, blame=0, repair=0, emotion=0, toxic=False, alternatives=[],
+                                         escalation_delta=0, confidence=3, rationale="잘못된 점수"))
         provider = OpenAIProvider.__new__(OpenAIProvider)
         provider.client = SimpleNamespace(responses=fake)
         provider.model = "test-model"

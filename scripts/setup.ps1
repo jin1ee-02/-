@@ -37,4 +37,4 @@ if ($MvpMode) {
 Push-Location $frontendRoot
 try { & npm ci; if ($LASTEXITCODE -ne 0) { throw '프론트엔드 의존성 설치 실패' } }
 finally { Pop-Location }
-Write-Host '준비 완료. backend/.env의 OpenAI와 TypeSafe API 키를 설정하세요. 테스트는 실행하지 않았습니다.'
+Write-Host '준비 완료. 키 없이도 오프라인 규칙으로 실행됩니다. 실제 LLM은 backend/.env의 OPENAI_API_KEY를 설정하세요.'
