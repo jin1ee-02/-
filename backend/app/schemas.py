@@ -39,6 +39,8 @@ class ConversationInput(StrictModel):
 
 class DraftInput(ConversationInput):
     suggest_rewrite: bool = True
+    # LLMediator-style manual activation: the user asks for alternatives even when nothing was flagged.
+    force_rewrite: bool = False
     sensitivity: float = Field(default=0.5, ge=0, le=1)
 
 
@@ -55,8 +57,16 @@ class ModelFeatures(StrictModel):
     blame: int
     repair: int
     escalation_delta: int
+    emotion: int
     confidence: int
     rationale: str
+
+
+class LightOutput(ModelFeatures):
+    """Light path: signals, expressed emotion and alternatives from one call."""
+
+    toxic: bool
+    alternatives: list[str]
 
 
 class FeatureScores(ModelFeatures):
@@ -65,6 +75,8 @@ class FeatureScores(ModelFeatures):
     blame: int = Field(ge=0, le=4)
     repair: int = Field(ge=0, le=4)
     escalation_delta: int = Field(ge=-2, le=2)
+    # Speaker's expressed anger/tension in this message; None for results stored before v2.
+    emotion: int | None = Field(default=None, ge=0, le=4)
     confidence: int = Field(ge=0, le=4)
     rationale: str = Field(max_length=500)
     model_version: str | None = None
@@ -111,6 +123,7 @@ class EmotionResult(StrictModel):
     contextCount: int
     confidence: float | None = Field(ge=0, le=1)
     provider: str
+    cooldownLevel: int | None = None
 
 
 class ReactionInput(ConversationInput):
@@ -168,7 +181,8 @@ class SideScore(StrictModel):
 
 
 class DebateOutput(StrictModel):
-    text: str
+    strategy: str  # private plan, logged for explainability but hidden from other agents
+    text: str  # public utterance
     evidence_indices: list[int]
 
 
@@ -179,6 +193,34 @@ class JudgeOutput(StrictModel):
     recommendation: str
     humor: str
     unresolved: bool
+    belief: float  # 0~1, how far the judge leans to A; tracked across rounds for stability
+
+
+class FactItem(StrictModel):
+    text: str
+    basis: Literal["A", "B", "both"]
+    evidence_indices: list[int]
+
+
+class CoreStateOutput(StrictModel):
+    position_a: str
+    position_b: str
+    issues: list[str]
+    facts: list[FactItem]
+    background: str
+
+
+class TrajectoryPoint(StrictModel):
+    index: int
+    speaker: Speaker
+    emotion: int | None
+    conflict: float
+
+
+class CoreState(CoreStateOutput):
+    """Shared state of PDF p14: positions, emotion trajectory, issues, facts."""
+
+    trajectory: list[TrajectoryPoint] = Field(default_factory=list)
 
 
 class DebateEntry(StrictModel):
@@ -186,6 +228,29 @@ class DebateEntry(StrictModel):
     round: int
     text: str
     evidenceIndices: list[int] = Field(default_factory=list)
+    strategy: str = ""
+    belief: float | None = None
+    persona: str | None = None  # judge panel member
+
+
+class RoundTrace(StrictModel):
+    round: int
+    belief: float  # panel mean
+    scoreDelta: float | None
+    beliefDelta: float | None
+    unresolved: bool
+    beliefs: list[float] = Field(default_factory=list)  # one per judge
+    votes: dict[str, int] = Field(default_factory=dict)  # A / even / B
+    ksDelta: float | None = None  # KS distance between this and the previous round's vote distribution
+
+
+class MediationOutput(StrictModel):
+    text: str
+
+
+class MediationResult(StrictModel):
+    text: str
+    provider: str
 
 
 class VerdictResult(JudgeOutput):
@@ -198,6 +263,12 @@ class VerdictResult(JudgeOutput):
     snapshotVersion: int
     provider: str
     promptVersion: str
+    coreState: CoreState | None = None
+    roundTrace: list[RoundTrace] = Field(default_factory=list)
+    modelCalls: int = 0
+    judges: int = 1
+    # Token and latency totals of this verdict (AgenticSimLaw logs API metadata); None when the provider reports none.
+    usage: dict[str, float] | None = None
 
 
 class AppealInput(StrictModel):

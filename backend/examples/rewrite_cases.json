@@ -1,0 +1,8 @@
+[
+  {"relationship": "룸메이트", "recent_messages": [{"speaker": "B", "text": "미안, 오늘 너무 바빠서 청소 못 했어."}], "speaker": "A", "text": "진짜 대단하시네 ㅋㅋ 맨날 그 모양이지"},
+  {"relationship": "친구", "recent_messages": [{"speaker": "B", "text": "버스 놓쳐서 좀 늦을 것 같아."}], "speaker": "A", "text": "넌 항상 늦잖아. 약속을 뭘로 아는 거야?"},
+  {"relationship": "연인", "recent_messages": [{"speaker": "B", "text": "회의가 길어져서 연락 못 했어."}], "speaker": "A", "text": "됐어. 변명 듣기 싫으니까 말하지 마."},
+  {"relationship": "직장 동료", "recent_messages": [{"speaker": "B", "text": "자료는 내일 드릴게요."}], "speaker": "A", "text": "한 번도 제때 준 적이 없으시네요. 참 잘하십니다."},
+  {"relationship": "친구", "recent_messages": [{"speaker": "B", "text": "돈은 다음 주에 갚을게."}], "speaker": "A", "text": "너 때문에 내가 얼마나 곤란한지 알아? 한심하다 진짜."},
+  {"relationship": "룸메이트", "recent_messages": [{"speaker": "B", "text": "설거지는 내가 이따 할게."}], "speaker": "A", "text": "퍽이나 하겠다. 매번 말만 하잖아."}
+]

@@ -15,12 +15,14 @@ from fastapi.responses import JSONResponse
 from openai import OpenAIError
 from pydantic import ValidationError
 
-from app.provider import ModelOutputError, OpenAIProvider, get_provider, get_generation_factory
-from app.schemas import AppealInput, ConversationInput, DraftInput, DraftResult, EmotionInput, EmotionResult, MessageResult, ReactionInput, ReactionResult, ReceiptResult, RoomCreate, RoomJoin, RoomUpdate, SendInput, VerdictInput, VerdictResult
-from app.scoring import conflict_score, rewrite_threshold, update_temperature
-from app.analysis import analyzer_name, emotion_result, get_analyzer, reaction_result
+from app.provider import ModelOutputError, OpenAIProvider, configured, get_provider, get_generation_factory, llm_mode
+from app.prompts import MEDIATOR_PROMPT
+from app.schemas import MediationOutput, MediationResult, AppealInput, ConversationInput, DraftInput, DraftResult, EmotionInput, EmotionResult, MessageResult, ReactionInput, ReactionResult, ReceiptResult, RoomCreate, RoomJoin, RoomUpdate, SendInput, VerdictInput, VerdictResult
+from app.scoring import RELATIONSHIP_OFFSET, conflict_score, rewrite_threshold, update_temperature
+from app.analysis import analysis_mode, analyzer_name, emotion_result, get_analyzer, light_analysis, reaction_result
 from app.store import get_store, room_lock
 from app.verdict import create_verdict, appeal_verdict as execute_appeal
+from app.prompts import PROMPT_VERSION
 
 app = FastAPI(title="KU래쪄용 갈등 중재 MVP", version="1.0.0")
 Provider = Annotated[OpenAIProvider, Depends(get_provider)]
@@ -82,9 +84,10 @@ def health() -> dict[str, str]:
 
 @app.get("/v1/config")
 def config():
-    configured = lambda name: bool(os.getenv(name, "").strip()) and not os.getenv(name, "").startswith("your_")
-    analysis = os.getenv("ANALYSIS_PROVIDER", "openai")
-    return {"analysisProvider": analysis, "analysisConfigured": configured("TYPESAFE_API_KEY" if analysis == "jev" else "OPENAI_API_KEY"), "generationConfigured": configured("OPENAI_API_KEY"), "jevModel": os.getenv("JEV_MODEL", "jev-1.13.0"), "generationModel": os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "storage": "sqlite", "sync": "polling", "promptVersion": "ku-mvp-ko-v1"}
+    analysis, llm = analysis_mode(), llm_mode()
+    return {"analysisProvider": analysis, "llmProvider": llm, "offline": llm == "offline" or analysis == "offline",
+            "analysisConfigured": analysis == "offline" or configured("TYPESAFE_API_KEY" if analysis == "jev" else "OPENAI_API_KEY"), "generationConfigured": llm == "offline" or configured("OPENAI_API_KEY"),
+            "jevModel": os.getenv("JEV_MODEL", "jev-1.13.0"), "generationModel": os.getenv("OPENAI_MODEL", "gpt-4o-mini") if llm == "openai" else "rules-v1", "storage": "sqlite", "sync": "polling", "promptVersion": PROMPT_VERSION}
 
 
 @app.post("/v1/demo/messages", response_model=ReceiptResult)
@@ -101,7 +104,7 @@ def _provider_failure(error: Exception) -> HTTPException:
 def analyze_message(request: ConversationInput, provider: Analyzer) -> MessageResult:
     """Analyze a sent message and return the updated temperature; caller persists it."""
     try:
-        features = provider.analyze(request)
+        features, _ = light_analysis(request, provider)
     except (OpenAIError, ModelOutputError, ValidationError) as error:
         raise _provider_failure(error) from error
     raw = conflict_score(features)
@@ -117,11 +120,18 @@ def analyze_message(request: ConversationInput, provider: Analyzer) -> MessageRe
 def analyze_draft(request: DraftInput, provider: Analyzer, generation: GenerationFactory) -> DraftResult:
     """Analyze an unsent draft without changing the conversation temperature."""
     try:
-        features = provider.analyze(request)
+        # Light path: the single call already carries alternatives when the model saw a problem.
+        features, alternatives = light_analysis(request, provider)
         risk = conflict_score(features)
         threshold = max(15, min(90, round(rewrite_threshold(request.previous_temperature) + relationship_offset(request.relationship) - (request.sensitivity - 0.5) * 40)))
-        decision = "low_confidence" if features.confidence <= 1 else "rewrite_suggested" if risk >= threshold else "below_threshold"
-        alternatives = generation().alternatives(request) if decision == "rewrite_suggested" and request.suggest_rewrite else []
+        # One unmistakable signal (3+ = clear sarcasm / direct attack / strong blame) is enough even in a calm room,
+        # otherwise the weighted sum can never reach the calm-room threshold. Low sensitivity opts out.
+        strong = max(features.hostility, features.sarcasm, features.blame) >= 3 and request.sensitivity >= 0.5
+        decision = "low_confidence" if features.confidence <= 1 else "rewrite_suggested" if risk >= threshold or strong else "below_threshold"
+        if decision != "rewrite_suggested" and not request.force_rewrite:
+            alternatives = []
+        elif not alternatives and (request.suggest_rewrite or request.force_rewrite):
+            alternatives = generation().alternatives(request)
         rewritten = alternatives[0] if alternatives else None
     except (OpenAIError, ModelOutputError, ValidationError) as error:
         raise _provider_failure(error) from error
@@ -138,7 +148,7 @@ def analyze_draft(request: DraftInput, provider: Analyzer, generation: Generatio
 
 
 def relationship_offset(relationship):
-    return {"직장 동료": -10, "연인": -5, "룸메이트": -5, "친구": 0}.get(relationship, 0)
+    return RELATIONSHIP_OFFSET.get(relationship, 0)
 
 
 @app.post("/v1/emotions/analyze", response_model=EmotionResult)
@@ -187,10 +197,26 @@ def send_message(room_id: str, request: SendInput, provider: Analyzer, authoriza
             return store.state(room_id, subject)
         state = store.state(room_id, subject)
         input = ConversationInput(speaker=subject, text=request.text, relationship=state["relationship"], previous_temperature=state["temperature"], recent_messages=[{"speaker": m["speaker"], "text": m["text"]} for m in state["messages"][-10:]])
-        features = provider.analyze(input)
+        features, _ = light_analysis(input, provider)
         raw = conflict_score(features)
         result = MessageResult(features=features, raw_conflict=raw, previous_temperature=state["temperature"], temperature=update_temperature(state["temperature"], raw))
         return store.append(room_id, subject, request, result, state["version"])
+
+
+@app.post("/v1/rooms/{room_id}/mediation", response_model=MediationResult)
+def mediation(room_id: str, provider: Provider, authorization: Authorization = None):
+    """On-demand neutral suggestion for the requester only (LLMediator F2/F3); nothing is posted to the room."""
+    store = get_store()
+    subject = store.authorize(room_id, authorization)
+    state = store.state(room_id, subject)
+    messages = [{"speaker": m["speaker"], "text": m["text"]} for m in state["messages"][-10:]]
+    if not messages:
+        raise HTTPException(422, "대화가 시작된 뒤에 요청해주세요.")
+    payload = {"requester": subject, "relationship": state["relationship"], "messages": messages}
+    text = provider.structured(MEDIATOR_PROMPT, payload, MediationOutput, 400).text.strip()
+    if not text or len(text) > 400:
+        raise ModelOutputError("중재 제안이 유효하지 않습니다.")
+    return MediationResult(text=text, provider=f"{getattr(provider, 'vendor', 'openai')}/{provider.model}")
 
 
 @app.post("/v1/verdicts", response_model=VerdictResult)

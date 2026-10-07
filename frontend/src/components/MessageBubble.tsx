@@ -12,7 +12,7 @@ export function MessageBubble({ message, viewer = 'A' }: { message: Message; vie
         <Text style={styles.text}>{message.text}</Text>
       </View>
       <Text style={[styles.confirmation, { textAlign: isMine ? 'right' : 'left' }]}>
-        {message.result.mode === 'ai' ? 'AI 분석 완료' : message.result.mode === 'local' ? '시연 메시지' : '입력 수신 확인'}
+        {message.result.mode === 'ai' ? message.result.data.features.model_version?.startsWith('offline') ? '규칙 기반 분석' : message.result.data.features.model_version === 'prefilter' ? '사전 필터 통과' : 'AI 분석 완료' : message.result.mode === 'local' ? '시연 메시지' : '입력 수신 확인'}
         {' · '}{new Date(message.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
       </Text>
     </View>

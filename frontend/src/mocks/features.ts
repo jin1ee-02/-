@@ -60,7 +60,7 @@ export function mockVerdict(input: VerdictRequest, appeal?: string): VerdictResu
     recommendation: '가능한 시간과 할 일을 함께 정하고, 일정이 바뀌면 먼저 알려주기로 합의해보세요.',
     humor: input.mode === 'WWE' ? '오늘의 메인 이벤트는 청소! 링 위의 말싸움은 내려놓고 빗자루를 같이 들어볼까요?' : '이번 라운드는 잠시 휴식. 다음 라운드는 서로의 이야기를 끝까지 듣기로 해요.',
     debateLog: [
-      { role: 'prosecutor', round: 1, text: '약속이 반복해서 지켜지지 않은 점을 검토하는 발언 예시입니다.' },
+      { role: 'prosecutor', round: 1, strategy: '반복된 약속 불이행을 먼저 짚는 전략 예시입니다.', text: '약속이 반복해서 지켜지지 않은 점을 검토하는 발언 예시입니다.' },
       { role: 'defense', round: 1, text: '상대의 사정과 대안을 함께 살펴보는 발언 예시입니다.' },
       { role: 'factcheck', round: 1, text: '대화에 확인된 사실과 추측을 구분하는 발언 예시입니다.' },
       { role: 'judge', round: 1, text: appeal ? '추가 반론이 접수된 상황의 판사 발언 예시입니다.' : '양쪽의 강점과 개선할 점을 정리하는 발언 예시입니다.' },

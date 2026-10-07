@@ -21,6 +21,7 @@ export interface DraftReview {
   decision: 'safe' | 'suggested' | 'uncertain';
   alternatives: string[];
   explanation: string;
+  provider?: string | null;
   source: FeatureSource;
 }
 
@@ -37,6 +38,7 @@ export interface EmotionResult {
   status?: 'ok' | 'uncertain' | 'insufficient_context';
   confidence?: number | null;
   provider?: string;
+  cooldownLevel?: number | null;
   recommendation: string;
   contextCount: number;
   source: FeatureSource;
@@ -64,6 +66,30 @@ export interface DebateEntry {
   role: 'prosecutor' | 'defense' | 'factcheck' | 'judge';
   round: number;
   text: string;
+  evidenceIndices?: number[];
+  strategy?: string; // private plan written before the public utterance
+  belief?: number | null; // judge only: 0~1 lean towards A
+  persona?: 'logic' | 'empathy' | 'evidence' | null; // judge panel member
+}
+
+export interface CoreState {
+  position_a: string;
+  position_b: string;
+  issues: string[];
+  facts: { text: string; basis: Speaker | 'both'; evidence_indices: number[] }[];
+  background: string;
+  trajectory: { index: number; speaker: Speaker; emotion: number | null; conflict: number }[];
+}
+
+export interface RoundTrace {
+  round: number;
+  belief: number;
+  scoreDelta: number | null;
+  beliefDelta: number | null;
+  unresolved: boolean;
+  beliefs?: number[];
+  votes?: { A?: number; even?: number; B?: number };
+  ksDelta?: number | null;
 }
 
 export interface VerdictResult {
@@ -80,6 +106,13 @@ export interface VerdictResult {
   stopReason?: 'stable' | 'max_rounds';
   parentVerdictId?: string | null;
   snapshotVersion?: number;
+  provider?: string;
+  belief?: number;
+  coreState?: CoreState | null;
+  roundTrace?: RoundTrace[];
+  modelCalls?: number;
+  judges?: number;
+  usage?: { inputTokens: number; cachedTokens: number; outputTokens: number; seconds: number } | null;
 }
 
 export type ReactionEmotion = 'neutral' | 'happy' | 'sad' | 'angry' | 'surprised' | 'fear' | 'disgust' | 'contempt';
@@ -117,6 +150,7 @@ export interface RoomState {
   participantCount: number;
   messages: import('./api').Message[];
   settings: RoomSettings;
+  emotions?: Record<Speaker, Omit<EmotionResult, 'source'>>;
 }
 
 export interface AsyncState<T> {
