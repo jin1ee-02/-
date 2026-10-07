@@ -2,7 +2,7 @@
 
 2인 대화에 언어 순화, 나의 감정 온도계, JEV 상대 반응 미리보기, 다툼판결과 반론을 연결합니다. Expo SDK 57과 FastAPI를 유지하고 SQLite로 대화와 판결을 저장합니다.
 
-**AI를 어떻게 활용했는지는 [AI 활용 설명](docs/AI-활용-설명.md), 기획서의 논문·데이터를 어떻게 반영했는지는 [논문·소스코드 적용 검토](docs/논문-소스코드-적용-검토.md)에 정리했습니다.** [빠른 시작](docs/MVP-빠른시작.md)에서 설치와 API 키 설정을 확인하세요. [상세 구현과 방법론](docs/MVP-구현-방법론.md)은 아키텍처, 데이터 모델, 파이프라인, 점수 수식, 프롬프트 원문, JEV 기준, 초기 기획 PDF 반영 상태와 평가 설계를 설명합니다.
+**전체를 한 장으로 보려면 [총정리](docs/총정리.md)부터 읽으세요.** **AI를 어떻게 활용했는지는 [AI 활용 설명](docs/AI-활용-설명.md), 기획서의 논문·데이터를 어떻게 반영했는지는 [논문·소스코드 적용 검토](docs/논문-소스코드-적용-검토.md)에 정리했습니다.** [빠른 시작](docs/MVP-빠른시작.md)에서 설치와 API 키 설정을 확인하세요. [상세 구현과 방법론](docs/MVP-구현-방법론.md)은 아키텍처, 데이터 모델, 파이프라인, 점수 수식, 프롬프트 원문, JEV 기준, 초기 기획 PDF 반영 상태와 평가 설계를 설명합니다.
 
 ## 실행
 
@@ -12,7 +12,7 @@ Python 3.11 이상, Node.js 22.13 이상이 필요합니다. Windows에서는 �
 .\scripts\setup.ps1 -MvpMode
 ```
 
-API 키가 없어도 바로 실행됩니다. 키가 없으면 백엔드는 오프라인 규칙(offline/rules-v1)으로 동작하고 화면에 "오프라인 규칙 기반 예시 · LLM 연결 전"이라고 표시합니다. 이 결과는 AI 판단이 아닙니다. backend/.env에 OPENAI_API_KEY를 넣고 백엔드를 재시작하면 실제 LLM으로 전환됩니다(LLM_PROVIDER=auto). TypeSafe JEV 분류 모델을 쓰려면 ANALYSIS_PROVIDER=jev와 TYPESAFE_API_KEY를 설정하세요. 키는 프론트에 넣지 않습니다.
+API 키가 없어도 바로 실행됩니다. 키가 없으면 백엔드는 오프라인 규칙(offline/rules-v1)으로 동작하고 화면에 "오프라인 규칙 기반 예시 · LLM 연결 전"이라고 표시합니다. 이 결과는 AI 판단이 아닙니다. backend/.env에 OPENAI_API_KEY를 넣고 백엔드를 재시작하면 실제 LLM으로 전환됩니다(LLM_PROVIDER=auto). TYPESAFE_API_KEY까지 넣으면 LLM과 JEV 분류 모델이 같은 메시지를 각각 채점하는 하이브리드 분석이 켜지고, 상대 반응 미리보기는 JEV가 맡습니다. 키는 프론트에 넣지 않습니다.
 
 두 터미널에서 각각 실행합니다.
 
@@ -40,7 +40,7 @@ DB는 backend/data/mvp.sqlite3, 참가 세션은 기기 AsyncStorage에 저장�
 
 ## 확인 상태
 
-2026년 10월 7일 기준 백엔드 테스트 33개, 프론트 TypeScript·ESLint·단위 테스트 5개가 통과합니다. 브라우저에서 두 참가자로 방 생성부터 순화, 온도계, 판결, 반론, 서버 재시작 후 복원까지 구동해 확인했습니다. 이 확인은 모두 오프라인 규칙 모드에서 했으며 **실제 LLM은 아직 호출하지 않았습니다.** 모델 품질·지연·비용은 키 연결 후 `python -m scripts.evaluate`와 `python -m scripts.evaluate_verdict --swap`으로 측정하세요.
+2026년 10월 7일 기준 백엔드 테스트 39개, 프론트 TypeScript·ESLint·단위 테스트 5개가 통과합니다. 브라우저에서 두 참가자로 방 생성부터 순화, 온도계, 판결, 반론, 서버 재시작 후 복원까지 구동해 확인했습니다. 이 확인은 모두 오프라인 규칙 모드에서 했으며 **실제 LLM은 아직 호출하지 않았습니다.** 모델 품질·지연·비용은 키 연결 후 `python -m scripts.evaluate`와 `python -m scripts.evaluate_verdict --swap`으로 측정하세요.
 
 ```bash
 cd backend

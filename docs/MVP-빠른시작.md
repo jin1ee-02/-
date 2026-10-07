@@ -21,7 +21,7 @@ LLM_PROVIDER=auto
 ANALYSIS_PROVIDER=auto
 ```
 
-키를 넣지 않아도 실행됩니다. `auto`는 OpenAI 키가 있으면 실제 LLM, 없으면 오프라인 규칙을 고르고 화면에 출처를 표시합니다. 오프라인 규칙의 결과는 AI 판단이 아닙니다. TypeSafe JEV로 분석하려면 `ANALYSIS_PROVIDER=jev`와 `TYPESAFE_API_KEY`를 추가하세요. 키는 백엔드에만 넣으세요. 현재 선택된 provider는 `/v1/config`의 `llmProvider`, `offline`에서 확인합니다.
+키를 넣지 않아도 실행됩니다. `auto`는 OpenAI 키가 있으면 실제 LLM, 없으면 오프라인 규칙을 고르고 화면에 출처를 표시합니다. 오프라인 규칙의 결과는 AI 판단이 아닙니다. `TYPESAFE_API_KEY`를 추가하면 LLM과 JEV가 함께 채점하는 하이브리드 분석으로 바뀝니다. 키는 백엔드에만 넣으세요. 현재 선택된 provider는 `/v1/config`의 `llmProvider`, `offline`에서 확인합니다.
 
 `frontend/.env`:
 
@@ -88,4 +88,4 @@ npm run web
 - 401/403: 참가 토큰과 선택한 방 확인.
 - 연결 오류: 서버 실행, API_URL, LAN, CORS 확인.
 
-백엔드 테스트 33개와 프론트 타입·린트·단위 테스트가 통과하고, 웹에서 두 참가자 흐름을 오프라인 규칙 모드로 구동해 확인했습니다. 실제 LLM 호출과 모바일 기기 실행은 아직 확인하지 않았습니다.
+백엔드 테스트 39개와 프론트 타입·린트·단위 테스트가 통과하고, 웹에서 두 참가자 흐름을 오프라인 규칙 모드로 구동해 확인했습니다. 실제 LLM 호출과 모바일 기기 실행은 아직 확인하지 않았습니다.

@@ -6,23 +6,29 @@ from fastapi import HTTPException
 
 from app.jev import get_jev
 from app.offline import trivial
-from app.provider import get_provider, llm_mode
+from app.provider import configured, get_provider, llm_mode
 from app.runtime import analysis_cache
 from app.schemas import EmotionResult, FeatureScores, ReactionResult
 
 
 def analysis_mode() -> str:
-    """auto follows the LLM provider; jev is the optional TypeSafe classifier."""
+    """auto picks the richest setup the configured keys allow:
+    both keys -> hybrid (LLM + Jev as two raters), TypeSafe key only -> jev, otherwise whatever the LLM is."""
     mode = os.getenv("ANALYSIS_PROVIDER", "auto").strip().lower()
     if mode == "auto":
+        if configured("TYPESAFE_API_KEY"):
+            return "hybrid" if llm_mode() == "openai" else "jev"
         return llm_mode()
-    if mode not in ("jev", "openai", "offline"):
-        raise HTTPException(503, "ANALYSIS_PROVIDER는 auto, openai, jev 또는 offline이어야 합니다.")
+    if mode not in ("hybrid", "jev", "openai", "offline"):
+        raise HTTPException(503, "ANALYSIS_PROVIDER는 auto, hybrid, openai, jev 또는 offline이어야 합니다.")
     return mode
 
 
 def get_analyzer():
     mode = analysis_mode()
+    if mode == "hybrid":
+        from app.hybrid import HybridAnalyzer
+        return HybridAnalyzer(get_provider(), get_jev())
     if mode == "jev":
         return get_jev()
     if mode == "offline":

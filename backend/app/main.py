@@ -86,7 +86,7 @@ def health() -> dict[str, str]:
 def config():
     analysis, llm = analysis_mode(), llm_mode()
     return {"analysisProvider": analysis, "llmProvider": llm, "offline": llm == "offline" or analysis == "offline",
-            "analysisConfigured": analysis == "offline" or configured("TYPESAFE_API_KEY" if analysis == "jev" else "OPENAI_API_KEY"), "generationConfigured": llm == "offline" or configured("OPENAI_API_KEY"),
+            "analysisConfigured": analysis == "offline" or (configured("TYPESAFE_API_KEY") if analysis in ("jev", "hybrid") else True) and (configured("OPENAI_API_KEY") if analysis == "openai" else True), "generationConfigured": llm == "offline" or configured("OPENAI_API_KEY"),
             "jevModel": os.getenv("JEV_MODEL", "jev-1.13.0"), "generationModel": os.getenv("OPENAI_MODEL", "gpt-4o-mini") if llm == "openai" else "rules-v1", "storage": "sqlite", "sync": "polling", "promptVersion": PROMPT_VERSION}
 
 

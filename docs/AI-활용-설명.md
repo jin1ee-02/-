@@ -1,6 +1,6 @@
 # KU래쪄용 — AI를 어떻게 활용했는가
 
-2026년 10월 7일 기준. 이 문서는 프로젝트에서 AI(LLM)가 쓰이는 모든 지점을 코드와 1:1로 대응시켜 설명합니다.
+2026년 10월 7일 기준. 이 문서는 프로젝트에서 AI(LLM)가 쓰이는 모든 지점을 코드와 1:1로 대응시켜 설명합니다. 전체를 한 장으로 보려면 [총정리](총정리.md)부터 읽으세요.
 발표·보고서에서 "AI를 어떻게 썼는가"를 설명할 때의 기준 문서입니다.
 
 > **현재 상태 한 줄 요약**
@@ -73,7 +73,8 @@ flowchart TD
 | `backend/app/scoring.py` | 모델이 관여하지 않는 계산: 갈등 점수, 온도 누적, 임계값, 온도계 |
 | `backend/app/verdict.py` | Heavy 오케스트레이션: Core State, 토론 순서, 조기 종료, 반론 |
 | `backend/app/offline.py` | LLM 연결 전까지 쓰는 규칙 기반 대체물 |
-| `backend/app/jev.py` | 선택 사항: TypeSafe JEV 분류 모델 어댑터 |
+| `backend/app/jev.py` | TypeSafe JEV 분류 모델 어댑터 |
+| `backend/app/hybrid.py` | LLM과 JEV를 두 채점자로 결합 (§6.1) |
 
 ---
 
@@ -344,7 +345,28 @@ plaintiff는 언제나 A, defendant는 언제나 B. 요청자가 누구인지 �
 
 순화 대안을 골라 "상대 반응 비교하기"를 누르면 같은 대화·관계 조건에서 대안의 예상 반응을 원문과 나란히 볼 수 있습니다. 부정적 반응이 예상된다고 해서 순화를 강제하지는 않습니다. 정당한 요구도 상대를 불편하게 할 수 있기 때문입니다.
 
-이 기능은 LLM(`REACTION_PROMPT`) 또는 TypeSafe JEV 분류 모델(`ANALYSIS_PROVIDER=jev`) 중 하나로 동작합니다.
+이 기능은 TypeSafe 키가 있으면 JEV가, 없으면 LLM(`REACTION_PROMPT`)이 맡습니다. "여러 감정 중 하나를 확률과 함께 고르기"는 JEV의 Choice 기능 그대로이기 때문입니다.
+
+### 6.1 JEV를 두 번째 채점자로 쓰기 (하이브리드 분석)
+
+JEV는 TypeSafe의 분류 모델입니다. 문장을 생성하지 못하지만 단계별 확률과 보정된 신뢰도를 돌려주고 비용이 매우 낮습니다. 영어 위주로 학습되어 한국어는 직접 검증하라고 공식 문서가 안내합니다. LLM은 반대로 한국어 뉘앙스에 강하지만 확신도는 자기 평가일 뿐입니다.
+
+OpenAI와 TypeSafe 키가 모두 있으면(`ANALYSIS_PROVIDER=auto` 또는 `hybrid`) 두 모델이 같은 메시지를 **독립적으로** 채점합니다(`hybrid.py`).
+
+```text
+LLM Light 호출 ─┐                       ┌ 일치: 신호·감정 점수 평균, 신뢰도는 더 낮은 쪽
+                ├─ 동시에 실행 ─ 합치기 ─┤
+JEV 호출 ───────┘                       └ 공격성·비꼼·비난 중 하나라도 2단계 이상 차이: 신뢰도 1 → 판단 보류
+```
+
+- 평균하면 한 모델의 이상치가 덜 반영됩니다.
+- 크게 엇갈리면 확신할 수 없다고 보고 순화 제안을 띄우지 않습니다. 오탐으로 사용자를 방해하는 것보다 놓치는 쪽을 택한 것입니다(기획서 p24).
+- 대안 3개는 LLM이 씁니다. JEV 호출이 실패하면 LLM 결과만으로 진행하고 라벨에 "jev 응답 없음"을 남깁니다.
+- 판결 경로에는 JEV를 쓰지 않습니다.
+
+JEV에 보내는 질문은 LLM 루브릭과 같은 단계 설명을 쓰는 Score 질문 6개(공격성·비꼼·비난·회복·격화·감정)이고 한 번의 요청에 담습니다. 응답의 확률 합, 점수와 확률의 일치, 단계 설명 존재를 서버가 검증합니다.
+
+불일치 기준 2단계는 초기값입니다. JEV가 한국어 비꼼을 자주 놓치면 보류가 잦아질 수 있으므로, 키 연결 후 `python -m scripts.evaluate`를 `openai` / `jev` / `hybrid`로 각각 돌려 비교해야 합니다.
 
 ---
 
@@ -461,7 +483,7 @@ LLM_PROVIDER=auto
 ANALYSIS_PROVIDER=auto
 ```
 
-`auto`는 키가 있으면 OpenAI, 없으면 오프라인 규칙을 고릅니다. 백엔드를 다시 시작한 뒤 `http://127.0.0.1:8000/v1/config`에서 `"llmProvider": "openai"`, `"offline": false`인지 확인하세요. 화면의 "오프라인 규칙 기반 예시" 표시가 "AI 분석 결과"로 바뀝니다.
+`auto`는 키가 있으면 OpenAI, 없으면 오프라인 규칙을 고릅니다. `TYPESAFE_API_KEY`까지 넣으면 분석이 하이브리드(§6.1)로 바뀝니다. 백엔드를 다시 시작한 뒤 `http://127.0.0.1:8000/v1/config`에서 `"llmProvider": "openai"`, `"offline": false`인지 확인하세요. 화면의 "오프라인 규칙 기반 예시" 표시가 "AI 분석 결과"로 바뀝니다.
 
 ### 다른 LLM(Claude 등)을 쓰는 경우
 
@@ -504,7 +526,7 @@ def structured(self, prompt, payload, schema, tokens=1600, shared=None):
 ## 13. 확인한 것과 확인하지 못한 것
 
 **확인한 것 (2026-10-07)**
-- 백엔드 테스트 33개 통과 (`python -m unittest discover -s tests`). 방 권한, 중복 전송, Light 통합 출력, 사전 필터, 양쪽 온도계, Core State, 발언 순서와 전략 비공개, 조기 종료, 반론, 판결 재조회 포함
+- 백엔드 테스트 39개 통과 (`python -m unittest discover -s tests`). 방 권한, 중복 전송, Light 통합 출력, 사전 필터, 양쪽 온도계, Core State, 발언 순서와 전략 비공개, 조기 종료, 반론, 판결 재조회 포함
 - 프론트 TypeScript 검사, ESLint, 단위 테스트 5개 통과
 - 브라우저에서 두 참가자(A/B)로 실제 구동: 방 생성 → 초대 코드 참가 → 메시지 동기화 → 양쪽 온도계 → 초안 순화 대안 3개 → 상대 반응 미리보기 → 판결(2라운드 조기 종료, 심사위원 3명, 호출 13회) → Core State·토론 과정 표시 → 상대편 기기에서 반론 → 서버 재시작 후 판결 기록 유지
 - 위 구동은 전부 **오프라인 규칙 모드**에서 수행
@@ -514,7 +536,8 @@ def structured(self, prompt, payload, schema, tokens=1600, shared=None):
 - 프롬프트의 실제 품질: 한국어 비꼼 감지 정확도, 대안의 자연스러움과 의미 보존, 판결의 공정성
 - 토론이 실제로 몇 라운드에서 수렴하는지, 조기 종료 기준(5점 / 0.1)이 적절한지
 - 응답 지연과 비용, prompt caching 적중 여부
-- TypeSafe JEV 경로 (키 없음)
+- TypeSafe JEV 실제 호출 (키 없음). 어댑터는 공식 문서의 응답 형식으로 만든 가짜 서버로만 확인했습니다
+- JEV의 한국어 성능과 하이브리드 불일치 기준의 적절성
 - 실제 휴대폰 기기 실행
 
 ---
@@ -546,3 +569,4 @@ def structured(self, prompt, payload, schema, tokens=1600, shared=None):
 | PostgreSQL (p16) | ❌ | SQLite 사용. 단일 서버 시연에 충분 |
 | 로컬 감정 모델 (EmoBERTa, Qwen) (p25) | ❌ | LLM API로 통일. Light 통합으로 호출 수를 줄여 대응 |
 | 상대 반응 미리보기 | ➕ | 기획서에 없던 추가 기능 |
+| LLM + JEV 하이브리드 분석 | ➕ | 두 모델이 독립 채점, 불일치 시 보류 |
