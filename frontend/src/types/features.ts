@@ -38,7 +38,6 @@ export interface EmotionResult {
   status?: 'ok' | 'uncertain' | 'insufficient_context';
   confidence?: number | null;
   provider?: string;
-  cooldownLevel?: number | null;
   recommendation: string;
   contextCount: number;
   source: FeatureSource;
@@ -58,6 +57,10 @@ export interface SideScore {
   logic: number;
   emotionControl: number;
   evidence: number;
+  // Why each score was given; absent on verdicts stored before the reasons were added.
+  logicReason?: string;
+  emotionControlReason?: string;
+  evidenceReason?: string;
   strength: string;
   improvement: string;
 }

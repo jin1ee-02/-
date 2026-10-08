@@ -13,7 +13,7 @@ from app.offline import OfflineProvider
 from app.provider import get_generation_factory, get_provider
 from app.schemas import ConversationInput, DebateOutput, JudgeOutput, SideScore, VerdictInput
 from app.store import Store
-from app.verdict import aggregate, ks_distance, run_debate
+from app.verdict import aggregate, ks_distance, run_debate, validate_judge
 
 SCENARIO = [("A", "오늘 청소 같이 하기로 했잖아."), ("B", "미안, 오늘 너무 바빠서 못 했어."), ("A", "지난번에도 그래서 좀 답답해."), ("B", "내일은 같이 할 수 있을 것 같아.")]
 
@@ -30,7 +30,7 @@ class DriftingJudge:
         if schema is DebateOutput:
             self.turns.append(payload)
             return DebateOutput(strategy=f"{payload['role']} 전략", text=f"{payload['role']} 발언", evidence_indices=[])
-        score = SideScore(logic=60, emotionControl=60, evidence=60, strength="강점", improvement="개선점")
+        score = SideScore(logic=60, emotionControl=60, evidence=60, logicReason="논리 근거", emotionControlReason="감정 근거", evidenceReason="근거 설명", strength="강점", improvement="개선점")
         return JudgeOutput(plaintiff=score, defendant=score, summary="요약", recommendation="제안", humor="", unresolved=False, belief=next(self.beliefs))
 
 
@@ -136,16 +136,39 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual((provider.turns[3]["role"], provider.turns[3]["own_previous_strategy"]), ("defense", "defense 전략"))
         self.assertNotIn("strategy", str(provider.turns[1]["transcript"]))
 
+    def test_one_invalid_reply_is_asked_again_instead_of_failing_the_verdict(self):
+        request = VerdictInput(room_id="r", requester="A", mode="UFC", relationship="친구", recent_messages=[{"speaker": "A", "text": "늦었네"}, {"speaker": "B", "text": "미안"}], request_id="r")
+        snapshot = {"messages": [m.model_dump() for m in request.recent_messages], "relationship": "친구", "temperature": 20, "version": 2}
+        provider = DriftingJudge([0.5] * 9)
+        answer, provider.failed = provider.structured, False
+        def flaky(prompt, payload, schema, tokens, shared=None):
+            if schema is DebateOutput and not provider.failed:
+                provider.failed = True
+                return DebateOutput(strategy="전략", text="가" * 701, evidence_indices=[])
+            return answer(prompt, payload, schema, tokens, shared)
+        provider.structured = flaky
+        result = run_debate(request, snapshot, provider)
+        self.assertEqual((result.rounds, result.stopReason), (2, "stable"))
+
     def test_panel_scores_are_averaged_and_vote_shift_is_measured_with_ks(self):
         def judgment(belief, logic):
-            side = SideScore(logic=logic, emotionControl=50, evidence=50, strength="강점", improvement="개선점")
+            side = SideScore(logic=logic, emotionControl=50, evidence=50, logicReason=f"논리 {logic}", emotionControlReason="감정 근거", evidenceReason="근거 설명", strength="강점", improvement="개선점")
             return JudgeOutput(plaintiff=side, defendant=side, summary=f"요약 {belief}", recommendation="제안", humor="", unresolved=belief > 0.7, belief=belief)
         merged = aggregate([judgment(0.3, 40), judgment(0.6, 70), judgment(0.9, 100)])
         self.assertEqual((merged.plaintiff.logic, merged.belief, merged.unresolved), (70.0, 0.6, False))
         self.assertEqual(merged.summary, "요약 0.6")  # text of the judge closest to the panel mean
+        self.assertEqual(merged.plaintiff.logicReason, "논리 70")  # reason of the judge whose score is closest to the mean
         self.assertEqual(ks_distance({"B": 3, "even": 0, "A": 0}, {"B": 3, "even": 0, "A": 0}), 0)
         self.assertEqual(ks_distance({"B": 2, "even": 1, "A": 0}, {"B": 1, "even": 1, "A": 1}), 0.3333)
         self.assertEqual(ks_distance({"B": 3, "even": 0, "A": 0}, {"B": 0, "even": 0, "A": 3}), 1)
+
+    def test_judge_lean_is_turned_to_match_its_own_scores(self):
+        def judgment(a, b, belief):
+            side = lambda value: SideScore(logic=value, emotionControl=value, evidence=value, logicReason="논리 근거", emotionControlReason="감정 근거", evidenceReason="근거 설명", strength="강점", improvement="개선점")
+            return JudgeOutput(plaintiff=side(a), defendant=side(b), summary="요약", recommendation="제안", humor="", unresolved=False, belief=belief)
+        self.assertEqual(validate_judge(judgment(20, 80, 0.7), "UFC").belief, 0.2)  # B scored higher, yet the lean said A
+        self.assertEqual(validate_judge(judgment(80, 20, 0.7), "UFC").belief, 0.7)  # consistent: kept as reported
+        self.assertEqual(validate_judge(judgment(60, 60, 0.7), "UFC").belief, 0.7)  # no clear score gap: kept
 
     def test_manual_rewrite_request_returns_alternatives_for_an_unflagged_draft(self):
         draft = {"speaker": "A", "text": "오늘 같이 청소할래?", "previous_temperature": 0}

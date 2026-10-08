@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from pydantic import ValidationError
 
 from app.provider import OpenAIProvider
-from app.schemas import ConversationInput, LightOutput
+from app.schemas import ConversationInput, LightOutput, ReactionInput, ReactionOutput
 
 
 class FakeResponses:
@@ -58,6 +58,16 @@ class ProviderTests(unittest.TestCase):
         provider.model = "test-model"
         with self.assertRaises(ValidationError):
             provider.analyze(ConversationInput(speaker="A", text="안녕"))
+
+    def test_reaction_distribution_is_normalised_instead_of_rejected(self):
+        # Sums to 1.2 and names a label that is not the largest: both used to be a 502.
+        fake = FakeResponses(ReactionOutput(emotion="sad", probabilities=[0.1, 0, 0.3, 0.6, 0.1, 0.05, 0.05, 0], intensity=0.7, confidence=0.8))
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        provider.client = SimpleNamespace(responses=fake)
+        provider.model = "test-model"
+        emotion, probabilities, intensity, confidence, _ = provider.reaction(ReactionInput(speaker="A", recipient="B", text="됐어", draft_revision="r1"))
+        self.assertEqual((emotion, probabilities["angry"], intensity, confidence), ("sad", 0.5, 0.7, 0.8))
+        self.assertAlmostEqual(sum(probabilities.values()), 1, places=3)
 
 
 if __name__ == "__main__":

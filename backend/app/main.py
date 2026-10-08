@@ -3,6 +3,7 @@
 from typing import Annotated, Callable
 import hashlib
 import json
+import logging
 import os
 import time
 import threading
@@ -12,7 +13,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from openai import OpenAIError
+from openai import APIConnectionError, OpenAIError, RateLimitError
 from pydantic import ValidationError
 
 from app.provider import ModelOutputError, OpenAIProvider, configured, get_provider, get_generation_factory, llm_mode
@@ -25,6 +26,7 @@ from app.verdict import create_verdict, appeal_verdict as execute_appeal
 from app.prompts import PROMPT_VERSION
 
 app = FastAPI(title="KU래쪄용 갈등 중재 MVP", version="1.0.0")
+logger = logging.getLogger("uvicorn.error")
 Provider = Annotated[OpenAIProvider, Depends(get_provider)]
 Analyzer = Annotated[object, Depends(get_analyzer)]
 GenerationFactory = Annotated[Callable, Depends(get_generation_factory)]
@@ -37,10 +39,20 @@ Authorization = Annotated[str | None, Header()]
 @app.exception_handler(httpx.HTTPError)
 @app.exception_handler(ValueError)
 def model_error_handler(request: Request, error: Exception):
+    # Name the cause in the server log (class and static reason only, never chat text) so a failure can be traced.
+    logger.warning("AI 호출 실패 %s %s%s", request.url.path, type(error).__name__, f": {error}" if isinstance(error, ModelOutputError) else "")
+    if isinstance(error, RateLimitError):
+        return JSONResponse(status_code=429, content={"detail": "AI 서비스의 사용량 한도에 걸렸어요. 잠시 후 다시 시도해주세요."}, headers={"Retry-After": "10"})
+    if isinstance(error, (APIConnectionError, httpx.TransportError)):
+        return JSONResponse(status_code=503, content={"detail": "AI 서비스에 연결하지 못했거나 응답이 늦어요. 잠시 후 다시 시도해주세요."})
+    if isinstance(error, ModelOutputError):
+        return JSONResponse(status_code=502, content={"detail": "AI 응답이 정해진 형식에 맞지 않았어요. 다시 시도해주세요."})
     return JSONResponse(status_code=502, content={"detail": "AI 요청 또는 응답 검증에 실패했습니다. 키와 모델 설정을 확인하고 다시 시도해주세요."})
 
 
 # Bounded per-client admission. Trust no forwarding headers in this local service.
+# Typing fires a draft check and a reaction preview per pause, and a shared gateway puts both participants on one address.
+RATE_LIMIT = max(1, int(os.getenv("RATE_LIMIT_PER_MINUTE", "240")))
 rate_lock = threading.Lock()
 rate_entries = OrderedDict()
 
@@ -53,7 +65,7 @@ async def rate_limit(request: Request, call_next):
         now = time.monotonic()
         with rate_lock:
             bucket = [t for t in rate_entries.get(key, []) if t > now - 60]
-            if len(bucket) >= 60:
+            if len(bucket) >= RATE_LIMIT:
                 return JSONResponse(status_code=429, content={"detail": "요청이 너무 많아요. 잠시 후 다시 시도해주세요."}, headers={"Retry-After": "10"})
             bucket.append(now)
             rate_entries[key] = bucket
@@ -221,7 +233,8 @@ def mediation(room_id: str, provider: Provider, authorization: Authorization = N
 
 @app.post("/v1/verdicts", response_model=VerdictResult)
 def verdict(request: VerdictInput, provider: Provider, authorization: Authorization = None):
-    with room_lock(request.room_id):
+    # A verdict takes most of a minute; its own lock keeps the room open for chatting meanwhile.
+    with room_lock("verdict:" + request.room_id, wait=0):
         return create_verdict(request, authorization, get_store(), provider)
 
 
@@ -229,7 +242,7 @@ def verdict(request: VerdictInput, provider: Provider, authorization: Authorizat
 def appeal(verdict_id: str, request: AppealInput, provider: Provider, authorization: Authorization = None):
     store = get_store()
     room_id = store.verdict(verdict_id)["room_id"]
-    with room_lock(room_id):
+    with room_lock("verdict:" + room_id, wait=0):
         return execute_appeal(verdict_id, request, authorization, store, provider)
 
 

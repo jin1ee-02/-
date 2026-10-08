@@ -35,7 +35,7 @@ export function useDraftReview(input: DraftPreviewRequest | null) {
   }, [input, key]);
 
   useEffect(() => {
-    if (input) timer.current = setTimeout(() => { check(false, false).catch(() => {}); }, 600);
+    if (input) timer.current = setTimeout(() => { check(false, false).catch(() => {}); }, 1000);
     return () => {
       if (timer.current) clearTimeout(timer.current);
       controller.current?.abort();

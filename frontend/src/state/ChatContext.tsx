@@ -29,8 +29,6 @@ interface ChatState {
   refreshEmotion: () => void;
   loadDemo: () => void;
   resetConversation: () => void;
-  cooldownUntil: number | null;
-  setCooldownUntil: (value: number | null) => void;
   lastVerdict: { result: VerdictResult; snapshot: VerdictRequest } | null;
   setLastVerdict: (value: { result: VerdictResult; snapshot: VerdictRequest } | null) => void;
   session: RoomSession | null;
@@ -72,7 +70,6 @@ export function ChatProvider({ children }: PropsWithChildren) {
   const viewer = session?.speaker ?? 'A';
   const [emotionSnapshot, setEmotionSnapshot] = useState<{ key: string; state: AsyncState<EmotionResult> } | null>(null);
   const [emotionRevision, setEmotionRevision] = useState(0);
-  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
   const [lastVerdict, setLastVerdict] = useState<{ result: VerdictResult; snapshot: VerdictRequest } | null>(null);
   const inFlight = useRef(false);
   const sequence = useRef(0);
@@ -147,7 +144,7 @@ export function ChatProvider({ children }: PropsWithChildren) {
     if (inFlight.current || interactionCountRef.current || settingsWrites.current) return;
     activeRoom.current = next.roomId; roomVersion.current = -1; pendingSend.current = null;
     setRoomToken(next.token); setSession(next); setSpeaker(next.speaker);
-    setMessages([]); setTemperature(0); setDraft(''); setLastVerdict(null); setCooldownUntil(null); setRoomEmotions(null);
+    setMessages([]); setTemperature(0); setDraft(''); setLastVerdict(null); setRoomEmotions(null);
     setDemoRevision((value) => value + 1);
   }
 
@@ -203,7 +200,6 @@ export function ChatProvider({ children }: PropsWithChildren) {
     setTemperature(0);
     setSettings((current) => ({ ...current, purifyEnabled: true, thermometerEnabled: true }));
     settingsRef.current = { ...settingsRef.current, purifyEnabled: true, thermometerEnabled: true };
-    setCooldownUntil(null);
     setLastVerdict(null);
     setSpeaker('A');
     setDraft(DEMO_DRAFT);
@@ -213,7 +209,7 @@ export function ChatProvider({ children }: PropsWithChildren) {
   function resetConversation() {
     if (API_MODE === 'ai') return;
     if (inFlight.current || interactionCountRef.current) return;
-    setMessages([]); setTemperature(0); setCooldownUntil(null); setLastVerdict(null);
+    setMessages([]); setTemperature(0); setLastVerdict(null);
     setDraft(''); setSpeaker('A'); setDemoRevision((value) => value + 1);
   }
 
@@ -273,7 +269,7 @@ export function ChatProvider({ children }: PropsWithChildren) {
       interactionBusy: sending || interactionCount > 0, beginInteraction,
       settings, updateSettings,
       emotion, partnerEmotion, aiProvider, refreshEmotion: () => setEmotionRevision((value) => value + 1), loadDemo, resetConversation,
-      cooldownUntil, setCooldownUntil, lastVerdict, setLastVerdict,
+      lastVerdict, setLastVerdict,
       session, sessions, ready, syncError, participantCount, openRoom, newRoom, enterRoom,
     }}>
       {children}

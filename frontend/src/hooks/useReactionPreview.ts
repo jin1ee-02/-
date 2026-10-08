@@ -22,7 +22,7 @@ export function useReactionPreview(input: ReactionRequest | null) {
       } catch (cause) {
         if (!controller.signal.aborted) setSnapshot({ key, state: { status: 'error', data: null, error: cause instanceof Error ? cause.message : '상대 반응을 확인하지 못했어요.' } });
       }
-    }, 750);
+    }, 1000);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [input, inputKey, key, revision]);
   return { state, retry: () => setRevision((value) => value + 1) };

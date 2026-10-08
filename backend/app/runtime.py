@@ -22,11 +22,13 @@ def usage_total(entries) -> dict | None:
 
 
 MODEL_SLOTS = threading.BoundedSemaphore(max(1, int(os.getenv("MODEL_CONCURRENCY", "4"))))
+MODEL_WAIT = float(os.getenv("MODEL_WAIT_SECONDS", "20"))
 
 
 @contextmanager
 def model_slot():
-    if not MODEL_SLOTS.acquire(blocking=False):
+    # Typing previews, sends and a verdict's judge panel overlap all the time; queue briefly instead of rejecting.
+    if not MODEL_SLOTS.acquire(timeout=MODEL_WAIT):
         raise HTTPException(429, "AI가 다른 요청을 처리하고 있어요. 잠시 후 다시 시도해주세요.", headers={"Retry-After": "3"})
     try:
         yield

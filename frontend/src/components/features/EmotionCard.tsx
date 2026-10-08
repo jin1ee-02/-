@@ -11,8 +11,8 @@ const stages = [
   { label: '폭발', color: '#C85050' },
 ];
 
-export function EmotionCard({ state, partner, onRetry, onCooldown }: {
-  state: AsyncState<EmotionResult>; partner?: EmotionResult | null; onRetry: () => void; onCooldown: () => void;
+export function EmotionCard({ state, partner, onRetry }: {
+  state: AsyncState<EmotionResult>; partner?: EmotionResult | null; onRetry: () => void;
 }) {
   const result = state.data;
   const level = result?.level ?? null;
@@ -40,7 +40,6 @@ export function EmotionCard({ state, partner, onRetry, onCooldown }: {
           <Text style={styles.caption}>{result.recommendation}</Text>
           {partner ? <Text style={styles.caption}>상대({partner.subject}) · {partner.level ? <Text style={{ fontWeight: '800', color: stages[partner.level - 1].color }}>{stages[partner.level - 1].label} {partner.level}/5</Text> : '판단 보류'}{partner.trend === 'up' ? ' · 상승 중 ↑' : partner.trend === 'down' ? ' · 낮아지는 중 ↓' : ''} · 메시지에 표현된 정도이며 실제 마음과 다를 수 있어요</Text> : null}
           {result.status === 'insufficient_context' ? null : <SourceBadge source={result.source} provider={result.provider} />}
-          {level !== null && level >= (result.cooldownLevel ?? 3) && <Pressable accessibilityRole="button" onPress={onCooldown} style={styles.notice}><Text style={styles.noticeText}>잠깐 쉬어갈까요? · 쿨다운 →</Text></Pressable>}
         </>
       ) : <Text style={styles.caption}>대화가 시작되면 나의 표현된 감정 상태를 표시합니다.</Text>}
     </View>
@@ -53,6 +52,4 @@ const styles = StyleSheet.create({
   gauge: { flexDirection: 'row', gap: 4 },
   segment: { height: 5, borderRadius: 3 },
   caption: { fontSize: 10, color: colors.muted, lineHeight: 14 },
-  notice: { backgroundColor: '#FFF4DD', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9 },
-  noticeText: { color: '#825D12', fontSize: 11, fontWeight: '700' },
 });

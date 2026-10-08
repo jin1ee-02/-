@@ -31,6 +31,10 @@ class OpenAIProvider:
         self.client = OpenAI(api_key=api_key, timeout=30.0, max_retries=1)
         self.model = model
         self.cache_enabled = True
+        # The same chat should get the same scores twice, so sampling is turned down. Leave OPENAI_TEMPERATURE
+        # empty for models that do not accept the parameter (reasoning models).
+        temperature = os.getenv("OPENAI_TEMPERATURE", "0").strip()
+        self.options = {"temperature": float(temperature)} if temperature else {}
 
     def structured(self, prompt, payload, schema, tokens=1600, shared=None):
         """One schema-constrained call. Order is static prompt -> shared case -> turn payload,
@@ -44,7 +48,7 @@ class OpenAIProvider:
         with model_slot():
             response = self.client.responses.parse(
                 model=self.model, input=messages,
-                text_format=schema, max_output_tokens=tokens, store=False,
+                text_format=schema, max_output_tokens=tokens, store=False, **getattr(self, "options", {}),
             )
         log, usage = usage_log.get(), getattr(response, "usage", None)
         if log is not None and usage is not None:
@@ -71,15 +75,18 @@ class OpenAIProvider:
         return result.current_score, result.previous_score, result.confidence, f"openai/{self.model}"
 
     def reaction(self, request):
-        from app.jev import EMOTIONS, distribution
+        from app.jev import EMOTIONS
         result = self.structured(REACTION_PROMPT, {"sender": request.speaker, "recipient": request.recipient, "target": request.text, "relationship": request.relationship, "recent_messages": [t.model_dump() for t in request.recent_messages]}, ReactionOutput, 500)
-        if len(result.probabilities) != 8:
-            raise ModelOutputError("예상 감정 확률 수가 유효하지 않습니다.")
-        probabilities, confidence = distribution({"probabilities": dict(zip(EMOTIONS, result.probabilities)), "confidence": result.confidence}, EMOTIONS)
         import math
-        if not math.isfinite(result.intensity) or not 0 <= result.intensity <= 1 or probabilities[result.emotion] < max(probabilities.values()) - 0.001:
-            raise ModelOutputError("예상 반응 강도나 범주가 유효하지 않습니다.")
-        return result.emotion, probabilities, result.intensity, confidence, f"openai/{self.model}"
+        values = [result.intensity, result.confidence, *result.probabilities]
+        if len(result.probabilities) != 8 or any(not math.isfinite(value) or value < 0 for value in values) or sum(result.probabilities) <= 0:
+            raise ModelOutputError("예상 반응 확률이 유효하지 않습니다.")
+        # A generative model names the emotion well but its positional probability array is rough: about half of
+        # gpt-4o-mini replies failed the classifier-grade check (sum of 1, label = largest). Keep the label and
+        # pass the array on normalised, as a reference value only.
+        total = sum(result.probabilities)
+        probabilities = {name: round(value / total, 4) for name, value in zip(EMOTIONS, result.probabilities)}
+        return result.emotion, probabilities, min(1.0, result.intensity), min(1.0, result.confidence), f"openai/{self.model}"
 
     @staticmethod
     def _payload(request: ConversationInput) -> str:

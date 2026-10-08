@@ -123,7 +123,6 @@ class EmotionResult(StrictModel):
     contextCount: int
     confidence: float | None = Field(ge=0, le=1)
     provider: str
-    cooldownLevel: int | None = None
 
 
 class ReactionInput(ConversationInput):
@@ -173,8 +172,12 @@ class VerdictInput(StrictModel):
 
 
 class SideScore(StrictModel):
+    # Each reason precedes its score so the model commits to the evidence before the number.
+    logicReason: str
     logic: float
+    emotionControlReason: str
     emotionControl: float
+    evidenceReason: str
     evidence: float
     strength: str
     improvement: str

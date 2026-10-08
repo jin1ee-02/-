@@ -1,5 +1,4 @@
-// Temporary integration contract matching backend/app/schemas.py.
-// The handoff document's /analyze and /verdict contracts are still proposals.
+// Integration contract matching backend/app/schemas.py.
 export type Speaker = 'A' | 'B';
 
 export interface ChatTurn {

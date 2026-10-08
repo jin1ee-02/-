@@ -111,7 +111,7 @@ class Store:
             count = db.execute("SELECT COUNT(*) FROM participants WHERE room_id=?", (room_id,)).fetchone()[0]
         messages, settings = [self.message(row) for row in reversed(rows)], json.loads(settings[0])
         # Both thermometers come from the stored Light results, so reading the room costs no model call.
-        emotions = {who: thermometer(messages, who, room["relationship"], settings.get("sensitivity", 0.5)) for who in "AB"}
+        emotions = {who: thermometer(messages, who) for who in "AB"}
         return {"roomId": room_id, "relationship": room["relationship"], "version": room["version"], "temperature": room["temperature"], "messages": messages, "settings": settings, "participantCount": count, "emotions": emotions}
 
     def update(self, room_id, speaker, request):
@@ -170,9 +170,10 @@ ROOM_LOCKS = [threading.Lock() for _ in range(64)]
 
 
 @contextmanager
-def room_lock(room_id):
-    lock = ROOM_LOCKS[int(digest(room_id)[:8], 16) % len(ROOM_LOCKS)]
-    if not lock.acquire(blocking=False):
+def room_lock(key, wait=25.0):
+    """Two people sending at the same moment queue for the short analysis instead of one of them failing."""
+    lock = ROOM_LOCKS[int(digest(key)[:8], 16) % len(ROOM_LOCKS)]
+    if not lock.acquire(timeout=wait):
         raise HTTPException(429, "대화방의 이전 작업을 기다려주세요.", headers={"Retry-After": "3"})
     try:
         yield

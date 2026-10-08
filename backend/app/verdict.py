@@ -40,12 +40,16 @@ def ks_distance(before, after):
 
 def aggregate(judgments):
     """ChatEval aggregation: average the scores. The text comes from the judge closest to the panel mean."""
-    mean = lambda values: round(sum(values) / len(values), 1)
     belief = sum(j.belief for j in judgments) / len(judgments)
     chair = min(judgments, key=lambda j: abs(j.belief - belief)).model_copy(deep=True)
     for name in ("plaintiff", "defendant"):
         for key in ("logic", "emotionControl", "evidence"):
-            setattr(getattr(chair, name), key, mean([getattr(getattr(j, name), key) for j in judgments]))
+            score = lambda j: getattr(getattr(j, name), key)
+            average = round(sum(map(score, judgments)) / len(judgments), 1)
+            # The reason shown beside an averaged score is the one written by the judge who scored closest to it.
+            nearest = min(judgments, key=lambda j: abs(score(j) - average))
+            setattr(getattr(chair, name), key + "Reason", getattr(getattr(nearest, name), key + "Reason"))
+            setattr(getattr(chair, name), key, average)
     chair.belief = round(belief, 3)
     chair.unresolved = sum(j.unresolved for j in judgments) * 2 > len(judgments)
     return chair
@@ -53,8 +57,8 @@ def aggregate(judgments):
 
 # Speaking order inside a round: claim -> rebuttal -> internal fact check, then the judge panel.
 ROLES = {
-    "prosecutor": "A의 관점에서 불만과 주장을 공정하게 대변하세요. B의 타당한 지적은 인정하세요.",
-    "defense": "B의 관점에서 상황과 주장을 공정하게 대변하세요. A의 타당한 지적은 인정하세요.",
+    "prosecutor": "A가 실제로 한 말을 근거로 A의 불만과 주장을 제3자로서 정리하세요('저는', '제가'로 말하지 않고 'A는 ...라고 말했습니다'). B의 타당한 지적은 인정하세요.",
+    "defense": "B가 실제로 한 말을 근거로 B의 상황과 주장을 제3자로서 정리하세요('저는', '제가'로 말하지 않고 'B는 ...라고 말했습니다'). A의 타당한 지적은 인정하세요.",
     "factcheck": "양쪽 주장과 대화 내부 근거를 대조하고 주장/확인된 대화/누락 정보를 구별하세요.",
 }
 
@@ -73,13 +77,26 @@ def validate_judge(judgment, mode):
     if not math.isfinite(judgment.belief) or not 0 <= judgment.belief <= 1:
         raise ModelOutputError("판사 belief 범위가 유효하지 않습니다.")
     for side in [judgment.plaintiff, judgment.defendant]:
-        if any(not value.strip() or len(value) > 300 for value in [side.strength, side.improvement]):
+        if any(not value.strip() or len(value) > 300 for value in [side.strength, side.improvement, side.logicReason, side.emotionControlReason, side.evidenceReason]):
             raise ModelOutputError("판결 항목 설명이 유효하지 않습니다.")
     if any(not value.strip() or len(value) > 700 for value in [judgment.summary, judgment.recommendation]) or len(judgment.humor) > 300:
         raise ModelOutputError("판결 설명이 유효하지 않습니다.")
     if mode == "UFC":
         judgment.humor = ""
+    # A judge's lean may not point away from its own scores: gpt-4o-mini reports about 0.7 towards A whoever scored higher.
+    scores = score_vector(judgment)
+    gap = (sum(scores[:3]) - sum(scores[3:])) / 600
+    if abs(gap) >= 0.05 and gap * (judgment.belief - 0.5) <= 0:
+        judgment.belief = round(0.5 + gap, 3)
     return judgment
+
+
+def twice(operation):
+    """A reply that breaks a length or index rule is asked for once more, so one of ~19 calls cannot sink the verdict."""
+    try:
+        return operation()
+    except ModelOutputError:
+        return operation()
 
 
 def trajectory(messages):
@@ -91,11 +108,13 @@ def build_core_state(request, snapshot, provider, previous=None):
     """Step 1 of the verdict: structure the chat log into positions / issues / facts (one call)."""
     count = len(snapshot["messages"])
     payload = {"messages": snapshot["messages"], "relationship": snapshot["relationship"], "context": request.context, "previous_core_state": previous}
-    output = provider.structured(CORE_STATE_PROMPT, payload, CoreStateOutput, 900)
-    texts = [output.position_a, output.position_b, output.background, *output.issues, *[fact.text for fact in output.facts]]
-    if not output.position_a.strip() or not output.position_b.strip() or not output.issues or len(output.issues) > 4 or len(output.facts) > 6 or any(len(text) > 500 for text in texts) or any(not valid_indices(fact.evidence_indices, count) for fact in output.facts):
-        raise ModelOutputError("Core State 구조화 결과가 유효하지 않습니다.")
-    return CoreState(**output.model_dump(), trajectory=snapshot.get("trajectory", []))
+    def structure():
+        output = provider.structured(CORE_STATE_PROMPT, payload, CoreStateOutput, 900)
+        texts = [output.position_a, output.position_b, output.background, *output.issues, *[fact.text for fact in output.facts]]
+        if not output.position_a.strip() or not output.position_b.strip() or not output.issues or len(output.issues) > 4 or len(output.facts) > 6 or any(len(text) > 500 for text in texts) or any(not valid_indices(fact.evidence_indices, count) for fact in output.facts):
+            raise ModelOutputError("Core State 구조화 결과가 유효하지 않습니다.")
+        return output
+    return CoreState(**twice(structure).model_dump(), trajectory=snapshot.get("trajectory", []))
 
 
 def run_debate(request, snapshot, provider, appeals=None, parent_id=None, calls=0):
@@ -110,7 +129,9 @@ def run_debate(request, snapshot, provider, appeals=None, parent_id=None, calls=
     usage_token = usage_log.set(usage)
     count = len(snapshot["messages"])
     # Identical for every call of this verdict, so it forms the cacheable prompt prefix.
-    case = {"case": {"messages": snapshot["messages"], "relationship": snapshot["relationship"], "context": request.context, "mode": request.mode, "conflictTemperature": snapshot["temperature"], "core_state": snapshot.get("core"), "appeals": appeals}}
+    # The judges score each person's own words, so those are listed per speaker next to the full log.
+    said = {speaker: [m["text"] for m in snapshot["messages"] if m["speaker"] == speaker] for speaker in "AB"}
+    case = {"case": {"messages": snapshot["messages"], "utterances": said, "relationship": snapshot["relationship"], "context": request.context, "mode": request.mode, "conflictTemperature": snapshot["temperature"], "core_state": snapshot.get("core"), "appeals": appeals}}
     strategies = {role: None for role in ROLES}
     panel = {}
     for round_number in range(1, max_rounds + 1):
@@ -121,16 +142,19 @@ def run_debate(request, snapshot, provider, appeals=None, parent_id=None, calls=
             # Agents see earlier public utterances (to rebut them) and only their own previous strategy.
             transcript = [{"role": e.role, "round": e.round, "text": e.text} for e in log if e.role != "judge" and e.round >= round_number - 1]
             turn = {"role": role, "round": round_number, "phase": phase, "instruction": ROLES[role], "transcript": transcript, "own_previous_strategy": strategies[role]}
-            result = provider.structured(DEBATE_PROMPT, turn, DebateOutput, 1100, shared=case)
-            if not result.text.strip() or len(result.text) > 700 or len(result.strategy) > 400 or not valid_indices(result.evidence_indices, count):
-                raise ModelOutputError("토론 발언 또는 근거 번호가 유효하지 않습니다.")
+            def speak():
+                result = provider.structured(DEBATE_PROMPT, turn, DebateOutput, 1100, shared=case)
+                if not result.text.strip() or len(result.text) > 700 or len(result.strategy) > 400 or not valid_indices(result.evidence_indices, count):
+                    raise ModelOutputError("토론 발언 또는 근거 번호가 유효하지 않습니다.")
+                return result
+            result = twice(speak)
             strategies[role] = result.strategy
             log.append(DebateEntry(role=role, round=round_number, text=result.text, evidenceIndices=result.evidence_indices, strategy=result.strategy))
         opinions = [{"role": e.role, "text": e.text, "evidence_indices": e.evidenceIndices} for e in log if e.round == round_number]
         def judge(persona):
             # Each judge sees the public debate and its own earlier judgment, never the other judges (independent votes).
             turn = {"round": round_number, "persona": JUDGE_PERSONAS[persona], "opinions": opinions, "previous_judgment": panel[persona].model_dump() if panel else None}
-            return validate_judge(provider.structured(JUDGE_PROMPT, turn, JudgeOutput, 2000, shared=case), request.mode)
+            return twice(lambda: validate_judge(provider.structured(JUDGE_PROMPT, turn, JudgeOutput, 2000, shared=case), request.mode))
         with ThreadPoolExecutor(max_workers=len(personas)) as pool:
             judgments = list(pool.map(lambda persona: contextvars.copy_context().run(judge, persona), personas))
         panel = dict(zip(personas, judgments))

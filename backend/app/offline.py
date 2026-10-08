@@ -128,6 +128,9 @@ class OfflineProvider:
                 evidence = round(max(15, min(90, 40 + 14 * sum(bool(MILD.search(t) or re.search(r"했잖아|때문에|바빠서|못\s*했", t)) for _, t in by[s]))))
                 logic = round(max(20, min(90, 58 + 6 * mean(s, "repair") - 7 * mean(s, "blame") + 4 * min(3, len(by[s])))))
                 return SideScore(logic=logic, emotionControl=control, evidence=evidence,
+                                 logicReason="규칙 기반 예시: 발화 수와 사과, 일반화 표현의 빈도로 계산했어요.",
+                                 emotionControlReason="규칙 기반 예시: 날카롭거나 비꼬는 표현의 빈도로 계산했어요.",
+                                 evidenceReason="규칙 기반 예시: 약속이나 사정을 언급한 발화 수로 계산했어요.",
                                  strength="상대의 사정을 인정하며 대화를 이어가려 했습니다." if mean(s, "repair") >= 1 else "자신이 불편했던 점을 분명히 전달했습니다.",
                                  improvement="일반화하거나 비꼬는 표현 대신 원하는 행동을 구체적으로 요청해보세요." if control < 60 else "어려운 사정은 미리 공유하고 대안을 함께 제시해보세요.")
             a, b = side("A"), side("B")

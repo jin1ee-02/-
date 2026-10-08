@@ -54,8 +54,8 @@ export function mockVerdict(input: VerdictRequest, appeal?: string): VerdictResu
   return {
     verdictId: `preview-${Date.now()}`,
     mode: input.mode,
-    plaintiff: { logic: 72, emotionControl: 45, evidence: 80, strength: '구체적인 약속과 반복된 상황을 짚었습니다.', improvement: '상대를 일반화하는 표현을 줄이면 요청이 더 잘 전달됩니다.' },
-    defendant: { logic: 50, emotionControl: 78, evidence: 35, strength: '상황을 설명하며 대화를 이어가려고 했습니다.', improvement: '약속을 지키기 어려웠다면 미리 공유하는 방식이 필요합니다.' },
+    plaintiff: { logic: 72, emotionControl: 45, evidence: 80, logicReason: '약속과 반복된 상황을 이유로 든 예시입니다.', emotionControlReason: '일반화 표현이 있었다는 예시입니다.', evidenceReason: '상대도 인정한 약속을 언급했다는 예시입니다.', strength: '구체적인 약속과 반복된 상황을 짚었습니다.', improvement: '상대를 일반화하는 표현을 줄이면 요청이 더 잘 전달됩니다.' },
+    defendant: { logic: 50, emotionControl: 78, evidence: 35, logicReason: '사정은 말했지만 이유가 짧았다는 예시입니다.', emotionControlReason: '사과하며 차분히 답했다는 예시입니다.', evidenceReason: '확인할 수 있는 사실이 적었다는 예시입니다.', strength: '상황을 설명하며 대화를 이어가려고 했습니다.', improvement: '약속을 지키기 어려웠다면 미리 공유하는 방식이 필요합니다.' },
     summary: appeal ? '반론을 포함한 결과 화면 예시입니다. 양쪽 관점과 합의점을 다시 확인합니다.' : '약속을 지키는 것과 사정을 설명하는 것 모두 중요해요. 책임을 따지기 전에 다음 약속을 구체적으로 정해보세요.',
     recommendation: '가능한 시간과 할 일을 함께 정하고, 일정이 바뀌면 먼저 알려주기로 합의해보세요.',
     humor: input.mode === 'WWE' ? '오늘의 메인 이벤트는 청소! 링 위의 말싸움은 내려놓고 빗자루를 같이 들어볼까요?' : '이번 라운드는 잠시 휴식. 다음 라운드는 서로의 이야기를 끝까지 듣기로 해요.',

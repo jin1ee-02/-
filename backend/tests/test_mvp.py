@@ -37,7 +37,7 @@ class FakeDebate:
     def structured(self, prompt, payload, schema, tokens, shared=None):
         if schema is DebateOutput:
             return DebateOutput(strategy="근거를 먼저 제시한다.", text="대화에 나타난 근거를 함께 확인합니다.", evidence_indices=[0])
-        score = SideScore(logic=60, emotionControl=70, evidence=50, strength="요청을 제시했습니다.", improvement="가능한 시간을 구체적으로 정하세요.")
+        score = SideScore(logic=60, emotionControl=70, evidence=50, logicReason="논리 근거", emotionControlReason="감정 근거", evidenceReason="근거 설명", strength="요청을 제시했습니다.", improvement="가능한 시간을 구체적으로 정하세요.")
         return JudgeOutput(plaintiff=score, defendant=score, summary="양쪽의 설명을 비교했습니다.", recommendation="다음 약속을 함께 정하세요.", humor="", unresolved=False, belief=0.5)
 
 

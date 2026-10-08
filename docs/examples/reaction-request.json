@@ -1,9 +1,0 @@
-{
-  "speaker": "A",
-  "recipient": "B",
-  "text": "청소가 계속 미뤄져서 답답해. 가능한 시간을 알려줄래?",
-  "relationship": "룸메이트",
-  "previous_temperature": 55,
-  "recent_messages": [{ "speaker": "B", "text": "오늘 너무 바빴어." }],
-  "draft_revision": "draft-001"
-}

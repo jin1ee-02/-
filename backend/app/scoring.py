@@ -39,17 +39,11 @@ LEVEL_ADVICE = ["차분하게 원하는 점을 이야기해보세요.", "불편�
 RELATIONSHIP_OFFSET = {"직장 동료": -10, "연인": -5, "룸메이트": -5, "친구": 0}
 
 
-def cooldown_level(relationship: str | None, sensitivity: float) -> int:
-    """Thermometer level that opens the cooldown notice (PDF p11: per-relationship sensitivity)."""
-    level = 3 + (1 if sensitivity < 0.4 else 0) - (1 if sensitivity > 0.6 and RELATIONSHIP_OFFSET.get(relationship, 0) < 0 else 0)
-    return max(2, min(5, level))
-
-
-def thermometer(messages: list[dict], speaker: str, relationship: str | None, sensitivity: float) -> dict:
+def thermometer(messages: list[dict], speaker: str) -> dict:
     """Thermometer for one speaker from the Light results already stored with each message: no extra model call."""
     own = [m["result"]["data"]["features"] for m in messages[-10:] if m["speaker"] == speaker]
     own = [f for f in own if f.get("emotion") is not None]
-    base = {"subject": speaker, "contextCount": len(messages[-10:]), "cooldownLevel": cooldown_level(relationship, sensitivity)}
+    base = {"subject": speaker, "contextCount": len(messages[-10:])}
     if not own:
         return {**base, "status": "insufficient_context", "level": None, "trend": None, "confidence": None, "provider": "core-state", "recommendation": "메시지가 아직 없어 감정을 판단할 수 없어요."}
     current = own[-1]

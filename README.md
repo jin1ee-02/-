@@ -1,48 +1,65 @@
 # KU래쪄용 갈등 중재 MVP
 
-2인 대화에 언어 순화, 나의 감정 온도계, JEV 상대 반응 미리보기, 다툼판결과 반론을 연결합니다. Expo SDK 57과 FastAPI를 유지하고 SQLite로 대화와 판결을 저장합니다.
+두 사람의 1대1 채팅에 언어 순화, 감정 온도계, 상대 반응 미리보기, 다툼판결과 반론을 붙인 앱입니다. Expo SDK 57(React Native) 앱과 FastAPI 서버, SQLite로 구성됩니다.
 
-**전체를 한 장으로 보려면 [총정리](docs/총정리.md)부터 읽으세요.** **AI를 어떻게 활용했는지는 [AI 활용 설명](docs/AI-활용-설명.md), 기획서의 논문·데이터를 어떻게 반영했는지는 [논문·소스코드 적용 검토](docs/논문-소스코드-적용-검토.md)에 정리했습니다.** [빠른 시작](docs/MVP-빠른시작.md)에서 설치와 API 키 설정을 확인하세요. [상세 구현과 방법론](docs/MVP-구현-방법론.md)은 아키텍처, 데이터 모델, 파이프라인, 점수 수식, 프롬프트 원문, JEV 기준, 초기 기획 PDF 반영 상태와 평가 설계를 설명합니다.
+## 문서
+
+| 문서 | 내용 |
+|---|---|
+| [기능 명세서](docs/기능-명세서.md) | **여기부터.** 기능별로 무엇을, 언제, 어떻게 쓰는지와 내부 동작, 판결 점수 산출, 오류 원인, 환경 변수, API |
+| [AI 활용 설명](docs/AI-활용-설명.md) | 프롬프트와 파이프라인을 왜 그렇게 설계했는지 (발표·보고서용) |
+| [논문·소스코드 적용 검토](docs/논문-소스코드-적용-검토.md) | 기획서의 논문 4편과 평가 자료를 어떻게 반영했는지, 평가 스크립트 사용법 |
+
+이전의 인계·제안·방법론 문서와 API 예시 파일은 2026-10-08에 위 세 문서로 정리하고 삭제했습니다. 필요하면 git 기록(커밋 `2ee9be4`)에서 볼 수 있습니다.
 
 ## 실행
 
-Python 3.11 이상, Node.js 22.13 이상이 필요합니다. Windows에서는 프로젝트 루트에서 실행하세요.
+Python 3.11 이상, Node.js 22.13 이상이 필요합니다. Windows에서는 프로젝트 루트에서 실행합니다.
 
 ```powershell
 .\scripts\setup.ps1 -MvpMode
 ```
 
-API 키가 없어도 바로 실행됩니다. 키가 없으면 백엔드는 오프라인 규칙(offline/rules-v1)으로 동작하고 화면에 "오프라인 규칙 기반 예시 · LLM 연결 전"이라고 표시합니다. 이 결과는 AI 판단이 아닙니다. backend/.env에 OPENAI_API_KEY를 넣고 백엔드를 재시작하면 실제 LLM으로 전환됩니다(LLM_PROVIDER=auto). TYPESAFE_API_KEY까지 넣으면 LLM과 JEV 분류 모델이 같은 메시지를 각각 채점하는 하이브리드 분석이 켜지고, 상대 반응 미리보기는 JEV가 맡습니다. 키는 프론트에 넣지 않습니다.
-
 두 터미널에서 각각 실행합니다.
 
 ```powershell
 .\scripts\start-backend.ps1
+```
+
+```powershell
 .\scripts\start-frontend.ps1
 ```
 
-프론트 http://localhost:8081, API 문서 http://127.0.0.1:8000/docs. 프론트 모드는 EXPO_PUBLIC_API_MODE=ai, EXPO_PUBLIC_FEATURE_MODE=api입니다. 기존 .env가 있으면 setup의 -MvpMode 옵션으로 두 모드를 변경합니다.
+프론트 http://localhost:8081, API 문서 http://127.0.0.1:8000/docs, 현재 모델 구성 http://127.0.0.1:8000/v1/config.
 
-## 구현한 흐름
+macOS·Linux는 `backend`에서 가상환경을 만들어 `pip install -r requirements-dev.txt` 후 `python -m uvicorn app.main:app --port 8000 --workers 1`, `frontend`에서 `npm ci` 후 `npm run web`을 실행합니다. 두 폴더의 `.env.example`을 `.env`로 복사해 두세요.
 
-- A가 방을 만들고 B가 1회용 초대 코드로 참가합니다. 방 토큰으로 화자를 확인합니다.
-- 메시지와 갈등 온도를 함께 저장하고 2초 간격으로 두 기기를 동기화합니다.
-- Light 경로: 초안·메시지마다 LLM 1회 호출로 갈등 신호, 표현된 감정, 순화 대안 3개를 함께 받습니다. 초안 분석은 전송하거나 온도를 바꾸지 않습니다.
-- 온도계는 저장된 Light 결과로 나와 상대의 표현된 분노·긴장을 추가 호출 없이 표시하고 문맥 부족과 불확실 상태를 구별합니다.
-- JEV는 상대의 예상 감정 8종과 전체 반응 강도를 평가하며 선택한 대안과 비교할 수 있습니다.
-- Heavy 경로: 판결 요청 시 대화를 Core State(쟁점·입장·사실관계·감정 궤적)로 정리한 뒤 검사·변호사·팩트체크가 최대 3라운드 토론하고 관점이 다른 심사위원 3명이 채점합니다. 각 에이전트는 전략을 먼저 세우고 발언하며, 심사위원단의 판단이 안정되면 조기 종료합니다. 결과·토론 과정·원래 대화·반론을 저장합니다.
+## API 키
 
-## 저장과 범위
+`backend/.env`에만 넣습니다. 프론트에는 넣지 않습니다. 값을 바꾸면 백엔드를 다시 시작합니다.
 
-DB는 backend/data/mvp.sqlite3, 참가 세션은 기기 AsyncStorage에 저장됩니다. 단일 서버의 workers 1 구성이며 계정 로그인·WebSocket·운영 배포는 별도 범위입니다. PostgreSQL·LangGraph·3D 얼굴의 확장 지점은 상세 문서에 있습니다.
+```text
+OPENAI_API_KEY=sk-...        # 넣으면 실제 LLM, 비우면 오프라인 규칙(AI 아님)으로 동작
+TYPESAFE_API_KEY=...         # 선택. 넣으면 LLM + JEV 하이브리드 분석이 켜짐
+```
 
-기존 시연은 API_MODE=local 또는 receipt, FEATURE_MODE=mock로 명시적으로 선택할 수 있습니다. API 실패를 mock 성공으로 대체하지 않습니다. backend/docs와 기존 handoff 문서의 제안은 작성 당시 기록이며 최신 구현은 새 MVP 문서를 기준으로 확인하세요.
+키가 없어도 전체 흐름이 실행되며 화면에 "오프라인 규칙 기반 예시 · LLM 연결 전"이라고 표시됩니다. 나머지 설정은 [기능 명세서 12장](docs/기능-명세서.md#12-환경-변수)을 보세요.
 
-## 확인 상태
+## 두 사람이 써 보기
 
-2026년 10월 7일 기준 백엔드 테스트 39개, 프론트 TypeScript·ESLint·단위 테스트 5개가 통과합니다. 브라우저에서 두 참가자로 방 생성부터 순화, 온도계, 판결, 반론, 서버 재시작 후 복원까지 구동해 확인했습니다. 이 확인은 모두 오프라인 규칙 모드에서 했으며 **실제 LLM은 아직 호출하지 않았습니다.** 모델 품질·지연·비용은 키 연결 후 `python -m scripts.evaluate`와 `python -m scripts.evaluate_verdict --swap`으로 측정하세요.
+1. 한 사람이 `대화방 만들기`를 누르고 목록에 뜬 초대 코드를 상대에게 전달합니다.
+2. 상대는 **다른 브라우저나 시크릿 창, 또는 다른 기기**에서 `코드로 참가하기`를 누릅니다. 같은 브라우저의 두 탭은 저장소를 공유해 한 사람으로 취급됩니다.
+3. 휴대폰에서 접속하려면 `frontend/.env`의 `EXPO_PUBLIC_API_URL`에 PC의 LAN 주소를 쓰고, `.\scripts\start-backend.ps1 -BindAddress 0.0.0.0`으로 서버를 띄우고, `backend/.env`의 `CORS_ORIGINS`에 그 웹 주소를 추가합니다.
+
+## 확인 상태 (2026-10-08)
 
 ```bash
 cd backend
-python -m unittest discover -s tests
+python -m unittest discover -s tests     # 42개 통과
+cd ../frontend
+npx tsc --noEmit && npx expo lint && npm test   # 타입, 린트, 단위 테스트 5개 통과
 ```
+
+- 실제 모델(`gpt-4o-mini`)로 메시지 분석, 순화, 상대 반응, 판결을 실행해 확인했습니다. 측정 결과는 기능 명세서 5.5, 8.5, 11장에 있습니다.
+- TypeSafe JEV 실제 호출, 실제 휴대폰 기기 실행, 사람이 라벨링한 대화로의 정확도 평가는 아직 하지 않았습니다.
+- 단일 서버(`--workers 1`), 2초 폴링 구성이며 로그인·WebSocket·운영 배포는 범위 밖입니다.
